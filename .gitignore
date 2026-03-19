@@ -1,0 +1,9 @@
+a-mac-dist/
+a-windos-dist/
+dist/
+build/
+data.json
+pic/
+app.log
+mix8/mix/
+*.pyc
