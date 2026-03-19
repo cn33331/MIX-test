@@ -32,6 +32,8 @@
    2. 参考 mix8/mix8.py 中的methods_info和subMethods_info函数。命令列表在输入的时候下面，会有提示，方便补充。选中对应的命令后，另外有个小窗口，显示该命令的详细说明doc。
    3. 参考/mix8/mix8.py完成RPC通信的建立和指令的发送。
 ## 项目文档结构
+
+   ```
 MIX-test/
 ├── main.py          # 程序入口，初始化应用并加载主窗口
 ├── core/            # 核心业务层
@@ -43,6 +45,7 @@ MIX-test/
 ├── mix8/            # RPC通信相关代码
 │   └── MoroccoA_RPC_client_demo_v1.0.py  # RPC客户端示例代码
 └── README.md        # 项目说明（功能、环境、运行步骤）
+   ```
 
 ## UI 界面组件结构
 
