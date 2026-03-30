@@ -16,7 +16,9 @@
 3. 文件打包
 
    ```
-   pyinstaller -F app.py
+   pyinstaller -F /Users/gdlocal/Desktop/myCode/myAPP/MIX-test/main.py
+   pyinstaller /Users/gdlocal/Desktop/myCode/myAPP/MIX-test/main.spec
+
    ```
 
 # 项目介绍

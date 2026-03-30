@@ -10,8 +10,10 @@ from utils.config import config_manager
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle('MIX Test Control')
+        self.version = 'v1.0'
+        self.setWindowTitle(f'MIX Test Control {self.version}')
         self.setGeometry(100, 100, 800, 600)
+        self.rpc_clients = {}  # 保存已连接的RPC客户端
         self.init_ui()
         self.load_channels_from_config()
         self.load_history_from_config()
@@ -214,14 +216,38 @@ class MainWindow(QMainWindow):
             self.log_message('请输入命令和参数')
             return
         
+        # 解析命令和参数
+        parts = command_with_params.split(' ')
+        if len(parts) < 1:
+            self.log_message('命令格式错误')
+            return
+        
+        command = parts[0]
+        args = parts[1:]
+        
+        # 解析服务名和方法名
+        if '.' in command:
+            service_name, method_name = command.split('.', 1)
+        else:
+            self.log_message('命令格式错误，应为 service.method')
+            return
+        
         # 遍历所有通道，发送指令到已连接的通道
         connected_channels = []
         for row in range(self.ip_table.rowCount()):
             status = self.ip_table.item(row, 3).text()
             if status == '已连接':
                 channel_name = self.ip_table.item(row, 0).text()
-                connected_channels.append(channel_name)
-                self.log_message(f'向通道 {channel_name} 发送命令: {command_with_params}')
+                
+                # 使用已保存的RPC客户端
+                if row in self.rpc_clients:
+                    client = self.rpc_clients[row]
+                    # 发送命令
+                    result = client.send_command(service_name, method_name, *args)
+                    self.log_message(f'向通道 {channel_name} 发送命令: {command_with_params}，结果: {result}')
+                    connected_channels.append(channel_name)
+                else:
+                    self.log_message(f'通道 {channel_name} 的RPC客户端未找到，请重新连接')
         
         if connected_channels:
             self.log_message(f'已向 {len(connected_channels)} 个已连接通道发送命令')
@@ -357,16 +383,27 @@ class MainWindow(QMainWindow):
         if connect_btn.text() == '连接':
             self.log_message(f'正在连接通道: {channel_name} ({ip}:{port})')
             
-            # 模拟连接成功
-            self.log_message(f'通道 {channel_name} 连接成功！')
+            # 尝试实际连接到MIX8设备
+            from core.rpc_client import RpcClient
+            client = RpcClient(ip, port)
             
-            # 更新状态和按钮
-            self.ip_table.setItem(row, 3, QTableWidgetItem('已连接'))
-            connect_btn.setText('断开')
+            # 调用connect方法进行连接
+            if client.connect():
+                self.log_message(f'通道 {channel_name} 连接成功！')
+                # 保存RPC客户端到字典
+                self.rpc_clients[row] = client
+                # 更新状态和按钮
+                self.ip_table.setItem(row, 3, QTableWidgetItem('已连接'))
+                connect_btn.setText('断开')
+            else:
+                self.log_message(f'通道 {channel_name} 连接失败！')
+                # 保持状态和按钮不变
         else:
             self.log_message(f'正在断开通道: {channel_name}')
             
-            # 模拟断开成功
+            # 断开连接
+            if row in self.rpc_clients:
+                del self.rpc_clients[row]
             self.log_message(f'通道 {channel_name} 断开成功！')
             
             # 更新状态和按钮

@@ -1,32 +1,126 @@
 import sys
 import os
+import importlib.util
 
-# 模拟RPC客户端，用于测试UI功能
 class RpcClient:
     def __init__(self, ip, port):
         self.ip = ip
         self.port = port
         self.services = ['relay', 'lucifer', 'eeprom', 'sib_board']
+        self.mix8_client = None
+        self.connected = False
         print(f"初始化RPC客户端: {ip}:{port}")
+    
+    def connect(self):
+        """
+        连接到MIX8设备
+        """
+        self._initialize_mix8_client()
+        return self.connected
+    
+    def _initialize_mix8_client(self):
+        """
+        动态加载MIX8客户端
+        """
+        try:
+            # 尝试动态加载MIX8模块
+            # 尝试多个可能的路径
+            possible_paths = []
+            
+            # 检查是否在PyInstaller打包环境中
+            if hasattr(sys, '_MEIPASS'):
+                # 在打包环境中，添加临时目录作为搜索路径
+                meipass_path = os.path.join(sys._MEIPASS, 'mix8', 'mix8.py')
+                possible_paths.insert(0, meipass_path)
+            
+            # # 添加相对于当前文件的路径
+            # current_dir = os.path.dirname(__file__)
+            # relative_path = os.path.join(current_dir, '..', 'mix8', 'mix8.py')
+            # possible_paths.append(relative_path)
+            
+            
+            #添加绝对路径
+            absolute_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'mix8', 'mix8.py'))
+            possible_paths.append(absolute_path)
+            
+            print(f"尝试加载MIX8模块，搜索路径:")
+            for i, path in enumerate(possible_paths, 1):
+                exists = "存在" if os.path.exists(path) else "不存在"
+                print(f"  {i}. {path} [{exists}]")
+            
+            mix8_path = None
+            for path in possible_paths:
+                if os.path.exists(path):
+                    mix8_path = path
+                    break
+            
+            if mix8_path:
+                print(f"找到MIX8模块: {mix8_path}")
+                # 动态添加mix8目录和mix子目录到Python路径
+                mix8_dir = os.path.dirname(mix8_path)
+                mix_dir = os.path.join(mix8_dir, 'mix')
+                sys.path.append(mix8_dir)
+                sys.path.append(mix_dir)
+                
+                try:
+                    spec = importlib.util.spec_from_file_location("mix8_client", mix8_path)
+                    mix8_module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(mix8_module)
+                    
+                    # 初始化MIX8客户端
+                    try:
+                        self.mix8_client = mix8_module.RpcClient(self.ip, int(self.port))
+                        self.connected = True
+                        print(f"成功连接到MIX8设备: {self.ip}:{self.port}")
+                    except Exception as e:
+                        print(f"连接MIX8设备失败: {e}")
+                        self.connected = False
+                except Exception as e:
+                    print(f"加载MIX8模块失败: {e}")
+                    print("请确保mix8目录包含所有必要的依赖文件")
+                    self.connected = False
+            else:
+                print(f"MIX8客户端文件不存在")
+                print("请将mix8目录放在应用程序旁边")
+                self.connected = False
+        except Exception as e:
+            print(f"初始化MIX8客户端失败: {e}")
+            self.connected = False
     
     def list_remote_services(self):
         """
         获取所有可调用服务
         """
+        if self.connected and self.mix8_client:
+            try:
+                # 调用MIX8客户端的方法获取服务列表
+                return self.mix8_client._list_remote_services()
+            except Exception as e:
+                print(f"获取服务列表失败: {e}")
+                return self.services
         return self.services
     
     def get_proxy(self, service_name):
         """
         获取服务代理
         """
-        if service_name in self.services:
-            return MockService(service_name)
+        if self.connected and self.mix8_client:
+            try:
+                # 调用MIX8客户端的方法获取服务代理
+                return self.mix8_client.client.get_proxy(service_name)
+            except Exception as e:
+                print(f"获取服务代理失败: {e}")
+                return None
         return None
     
     def send_command(self, service_name, method_name, *args, **kwargs):
         """
         发送指令
         """
+        if not self.connected:
+            print(f"RPC客户端未连接: {self.ip}:{self.port}")
+            return f"错误: RPC客户端未连接"
+        
         try:
             proxy = self.get_proxy(service_name)
             if proxy:
@@ -34,34 +128,9 @@ class RpcClient:
                 if method:
                     return method(*args, **kwargs)
                 else:
-                    raise Exception(f"方法 {method_name} 不存在")
+                    return f"错误: 方法 {method_name} 不存在"
             else:
-                raise Exception(f"服务 {service_name} 不存在")
+                return f"错误: 服务 {service_name} 不存在"
         except Exception as e:
             print(f"发送指令失败: {e}")
-            return None
-
-class MockService:
-    """
-    模拟服务类，用于测试
-    """
-    def __init__(self, service_name):
-        self.service_name = service_name
-    
-    def reset(self, *args, **kwargs):
-        return f"[{self.service_name}] 执行reset操作成功"
-    
-    def led_control(self, *args, **kwargs):
-        return f"[{self.service_name}] 执行led_control操作成功: {args}"
-    
-    def read_string_eeprom(self, *args, **kwargs):
-        return f"[{self.service_name}] 读取EEPROM成功: {args}"
-    
-    def write_string_eeprom(self, *args, **kwargs):
-        return f"[{self.service_name}] 写入EEPROM成功: {args}"
-    
-    def reset_gpio(self, *args, **kwargs):
-        return f"[{self.service_name}] 重置GPIO成功"
-    
-    def get_gpio(self, *args, **kwargs):
-        return f"[{self.service_name}] 获取GPIO值: {args}"
+            return f"错误: {str(e)}"
