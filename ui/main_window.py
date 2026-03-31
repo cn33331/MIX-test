@@ -1,16 +1,20 @@
 import sys
-from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
                             QLabel, QLineEdit, QPushButton, QTextEdit, 
                             QTableWidget, QTableWidgetItem, QGroupBox, 
                             QDialog, QSpinBox, QGridLayout, QScrollArea, QComboBox,
-                            QCompleter, QListWidget, QListWidgetItem)
+                            QCompleter, QListWidget, QListWidgetItem, QMenu)
 from PyQt6.QtCore import Qt, QStringListModel
 from utils.config import config_manager
+import json
+import os
+import csv
+import glob
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.version = 'v1.0'
+        self.version = 'v1.1'
         self.setWindowTitle(f'MIX Test Control {self.version}')
         self.setGeometry(100, 100, 800, 600)
         self.rpc_clients = {}  # 保存已连接的RPC客户端
@@ -38,7 +42,7 @@ class MainWindow(QMainWindow):
         
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
-        self.log_text.setMinimumHeight(300)
+        self.log_text.setMinimumHeight(500)
         log_layout.addWidget(self.log_text)
         
         log_group.setLayout(log_layout)
@@ -124,12 +128,71 @@ class MainWindow(QMainWindow):
         history_layout.setContentsMargins(10, 10, 10, 10)
         
         self.history_list = QListWidget()
-        self.history_list.setMinimumHeight(200)
-        self.history_list.itemClicked.connect(self.select_history_command)
+        self.history_list.setMinimumHeight(150)
+        self.history_list.itemDoubleClicked.connect(self.select_history_command)
+        self.history_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.history_list.customContextMenuRequested.connect(self.show_history_context_menu)
         history_layout.addWidget(self.history_list)
         
         history_group.setLayout(history_layout)
         right_layout.addWidget(history_group)
+        
+        # 指令序列区域（右侧下方）
+        self.sequence_group = QGroupBox('指令序列')
+        sequence_layout = QVBoxLayout()
+        sequence_layout.setContentsMargins(10, 10, 10, 10)
+        sequence_layout.setSpacing(10)
+        
+        # 序列列表
+        self.sequence_list = QListWidget()
+        self.sequence_list.setMinimumHeight(150)
+        self.sequence_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.sequence_list.customContextMenuRequested.connect(self.show_sequence_context_menu)
+        sequence_layout.addWidget(self.sequence_list)
+        
+        # 序列操作按钮
+        sequence_buttons_layout = QHBoxLayout()
+        sequence_buttons_layout.setSpacing(10)
+        
+        add_cmd_btn = QPushButton('添加指令')
+        add_cmd_btn.setMinimumHeight(30)
+        add_cmd_btn.clicked.connect(self.add_command_to_sequence)
+        sequence_buttons_layout.addWidget(add_cmd_btn)
+        
+        add_delay_btn = QPushButton('添加延迟')
+        add_delay_btn.setMinimumHeight(30)
+        add_delay_btn.clicked.connect(self.add_delay_to_sequence)
+        sequence_buttons_layout.addWidget(add_delay_btn)
+        
+        execute_sequence_btn = QPushButton('执行序列')
+        execute_sequence_btn.setMinimumHeight(30)
+        execute_sequence_btn.clicked.connect(self.execute_sequence)
+        sequence_buttons_layout.addWidget(execute_sequence_btn)
+        
+        clear_sequence_btn = QPushButton('清空序列')
+        clear_sequence_btn.setMinimumHeight(30)
+        clear_sequence_btn.clicked.connect(self.clear_sequence)
+        sequence_buttons_layout.addWidget(clear_sequence_btn)
+        
+        sequence_layout.addLayout(sequence_buttons_layout)
+        
+        # 保存和加载按钮
+        save_load_layout = QHBoxLayout()
+        save_load_layout.setSpacing(10)
+        
+        save_sequence_btn = QPushButton('保存序列组')
+        save_sequence_btn.setMinimumHeight(30)
+        save_sequence_btn.clicked.connect(self.save_sequence_group)
+        save_load_layout.addWidget(save_sequence_btn)
+        
+        load_sequence_btn = QPushButton('加载序列组')
+        load_sequence_btn.setMinimumHeight(30)
+        load_sequence_btn.clicked.connect(self.load_sequence_group)
+        save_load_layout.addWidget(load_sequence_btn)
+        
+        sequence_layout.addLayout(save_load_layout)
+        self.sequence_group.setLayout(sequence_layout)
+        right_layout.addWidget(self.sequence_group)
         
         # 通道IP显示区域（右侧下方）
         ip_group = QGroupBox('通道IP配置')
@@ -223,7 +286,18 @@ class MainWindow(QMainWindow):
             return
         
         command = parts[0]
-        args = parts[1:]
+        args = []
+        kwargs = {}
+        
+        # 解析参数，支持位置参数和关键字参数
+        for part in parts[1:]:
+            if '=' in part:
+                # 关键字参数，格式为 key=value
+                key, value = part.split('=', 1)
+                kwargs[key] = value
+            else:
+                # 位置参数
+                args.append(part)
         
         # 解析服务名和方法名
         if '.' in command:
@@ -232,6 +306,16 @@ class MainWindow(QMainWindow):
             self.log_message('命令格式错误，应为 service.method')
             return
         
+        # 向所有已连接通道发送指令
+        self.send_command_to_all_channels(service_name, method_name, command_with_params, *args, **kwargs)
+        
+        # 将命令添加到历史记录
+        self.add_to_history(command_with_params)
+    
+    def send_command_to_all_channels(self, service_name, method_name, command_with_params, *args, **kwargs):
+        """
+        向所有已连接通道发送指令
+        """
         # 遍历所有通道，发送指令到已连接的通道
         connected_channels = []
         for row in range(self.ip_table.rowCount()):
@@ -242,20 +326,20 @@ class MainWindow(QMainWindow):
                 # 使用已保存的RPC客户端
                 if row in self.rpc_clients:
                     client = self.rpc_clients[row]
-                    # 发送命令
-                    result = client.send_command(service_name, method_name, *args)
-                    self.log_message(f'向通道 {channel_name} 发送命令: {command_with_params}，结果: {result}')
-                    connected_channels.append(channel_name)
+                    try:
+                        # 发送命令，支持位置参数和关键字参数
+                        result = client.send_command(service_name, method_name, *args, **kwargs)
+                        self.log_message(f'[{channel_name}] 发送命令: {command_with_params}，结果: {result}')
+                        connected_channels.append(channel_name)
+                    except Exception as e:
+                        self.log_message(f'[{channel_name}] 发送命令失败: {command_with_params}，错误: {str(e)}')
                 else:
-                    self.log_message(f'通道 {channel_name} 的RPC客户端未找到，请重新连接')
+                    self.log_message(f'[{channel_name}] RPC客户端未找到，请重新连接')
         
         if connected_channels:
-            self.log_message(f'已向 {len(connected_channels)} 个已连接通道发送命令')
+            self.log_message(f'已向 {len(connected_channels)} 个已连接通道发送命令: {connected_channels}')
         else:
             self.log_message('没有已连接的通道')
-        
-        # 将命令添加到历史记录
-        self.add_to_history(command_with_params)
     
     def log_message(self, message):
         self.log_text.append(message)
@@ -370,6 +454,53 @@ class MainWindow(QMainWindow):
         
         dialog.exec()
     
+    def save_commands_info(self, commands_info):
+        """
+        保存命令信息到json文件
+        """
+        # 获取配置目录
+        config_dir = config_manager.get_config_dir()
+        commands_file = os.path.join(config_dir, 'commands_info.json')
+        
+        try:
+            with open(commands_file, 'w', encoding='utf-8') as f:
+                json.dump(commands_info, f, ensure_ascii=False, indent=2)
+            self.log_message(f"命令信息已保存到 {commands_file}")
+        except Exception as e:
+            self.log_message(f"保存命令信息失败: {str(e)}")
+    
+    def load_commands_info(self):
+        """
+        从json文件加载命令信息
+        """
+        # 获取配置目录
+        config_dir = config_manager.get_config_dir()
+        commands_file = os.path.join(config_dir, 'commands_info.json')
+        
+        try:
+            if os.path.exists(commands_file):
+                with open(commands_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except Exception as e:
+            self.log_message(f"加载命令信息失败: {str(e)}")
+        return {}
+    
+    def update_command_hints(self):
+        """
+        更新命令提示
+        """
+        # 加载命令信息
+        commands_info = self.load_commands_info()
+        
+        # 构建命令列表
+        commands = []
+        for service, methods in commands_info.items():
+            for method in methods:
+                commands.append(f"{service}.{method}")
+        
+        # 更新自动完成
+        self.cmd_model.setStringList(commands)
+    
     def connect_channel(self, row):
         """
         连接通道
@@ -395,6 +526,13 @@ class MainWindow(QMainWindow):
                 # 更新状态和按钮
                 self.ip_table.setItem(row, 3, QTableWidgetItem('已连接'))
                 connect_btn.setText('断开')
+                
+                # 获取所有命令信息并保存
+                commands_info = client.get_all_commands()
+                if commands_info:
+                    self.save_commands_info(commands_info)
+                    # 刷新命令提示
+                    self.update_command_hints()
             else:
                 self.log_message(f'通道 {channel_name} 连接失败！')
                 # 保持状态和按钮不变
@@ -504,17 +642,14 @@ class MainWindow(QMainWindow):
             self.command_hint_list.hide()
             return
         
-        # 模拟命令列表
-        commands = [
-            'relay.reset',
-            'lucifer.led_control',
-            'eeprom.read_string_eeprom',
-            'eeprom.write_string_eeprom',
-            'sib_board.reset_gpio',
-            'sib_board.get_gpio',
-            'sib_board.lock_xadc_measure',
-            'sib_board.read_string_eeprom'
-        ]
+        # 从json文件加载命令信息
+        commands_info = self.load_commands_info()
+        
+        # 构建命令列表
+        commands = []
+        for service, methods in commands_info.items():
+            for method in methods:
+                commands.append(f"{service}.{method}")
         
         # 过滤匹配的命令
         matched_commands = [cmd for cmd in commands if text.lower() in cmd.lower()]
@@ -544,51 +679,32 @@ class MainWindow(QMainWindow):
         """
         显示命令详细说明
         """
-        # 模拟命令文档
-        command_docs = {
-            'relay.reset': {
-                'doc': '重置继电器',
-                'params': '无参数'
-            },
-            'lucifer.led_control': {
-                'doc': '控制LED灯',
-                'params': 'device: str, color: str'
-            },
-            'eeprom.read_string_eeprom': {
-                'doc': '读取EEPROM字符串',
-                'params': 'address: int, length: int'
-            },
-            'eeprom.write_string_eeprom': {
-                'doc': '写入EEPROM字符串',
-                'params': 'address: int, data: str'
-            },
-            'sib_board.reset_gpio': {
-                'doc': '重置GPIO',
-                'params': '无参数'
-            },
-            'sib_board.get_gpio': {
-                'doc': '获取GPIO值',
-                'params': 'gpio_name: str'
-            },
-            'sib_board.lock_xadc_measure': {
-                'doc': '锁定XADC测量',
-                'params': 'channel: int, sample: int, count: int'
-            },
-            'sib_board.read_string_eeprom': {
-                'doc': '读取EEPROM字符串',
-                'params': 'address: int, length: int'
-            }
-        }
+        # 从json文件加载命令信息
+        commands_info = self.load_commands_info()
         
-        if command in command_docs:
-            doc = command_docs[command]['doc']
-            params = command_docs[command]['params']
+        # 解析命令，获取服务名和方法名
+        if '.' in command:
+            service_name, method_name = command.split('.', 1)
             
-            # 在主界面的命令信息区域显示
-            info_text = f"命令: {command}\n\n说明: {doc}\n\n参数: {params}"
-            self.cmd_info_text.setPlainText(info_text)
+            # 查找命令信息
+            if service_name in commands_info and method_name in commands_info[service_name]:
+                command_info = commands_info[service_name][method_name]
+                doc = command_info.get('doc', '无说明')
+                params = command_info.get('params', [])
+                
+                # 格式化参数
+                if isinstance(params, list):
+                    params_str = ', '.join(params) if params else '无参数'
+                else:
+                    params_str = str(params)
+                
+                # 在主界面的命令信息区域显示
+                info_text = f"命令: {command}\n\n说明: {doc}\n\n参数: {params_str}"
+                self.cmd_info_text.setPlainText(info_text)
+            else:
+                self.cmd_info_text.setPlainText('命令信息未找到')
         else:
-            self.cmd_info_text.setPlainText('命令信息未找到')
+            self.cmd_info_text.setPlainText('命令格式错误')
     
     def copy_command_to_param(self):
         """
@@ -638,3 +754,258 @@ class MainWindow(QMainWindow):
         self.param_input.setText(command)
         # 直接发送命令
         self.send_command()
+    
+    def show_history_context_menu(self, position):
+        """
+        显示历史命令的右键菜单
+        """
+        item = self.history_list.itemAt(position)
+        if item:
+            menu = QMenu()
+            add_to_sequence_action = menu.addAction("添加到序列")
+            delete_action = menu.addAction("删除")
+            action = menu.exec(self.history_list.mapToGlobal(position))
+            if action == delete_action:
+                # 删除历史命令
+                row = self.history_list.row(item)
+                self.history_list.takeItem(row)
+                # 更新配置文件
+                history = []
+                for i in range(self.history_list.count()):
+                    history.append(self.history_list.item(i).text())
+                config_manager.save_history(history)
+            elif action == add_to_sequence_action:
+                # 添加到序列列表
+                command = item.text()
+                sequence_item = QListWidgetItem(f"[CMD] {command}")
+                sequence_item.setCheckState(Qt.CheckState.Checked)
+                self.sequence_list.addItem(sequence_item)
+                self.log_message(f"已添加指令到序列: {command}")
+    
+    def show_sequence_context_menu(self, position):
+        """
+        显示序列列表的右键菜单
+        """
+        item = self.sequence_list.itemAt(position)
+        if item:
+            menu = QMenu()
+            delete_action = menu.addAction("删除")
+            action = menu.exec(self.sequence_list.mapToGlobal(position))
+            if action == delete_action:
+                # 删除序列项
+                row = self.sequence_list.row(item)
+                self.sequence_list.takeItem(row)
+                self.log_message("已从序列中删除指令")
+    
+    def add_command_to_sequence(self):
+        """
+        添加指令到序列列表
+        """
+        command = self.param_input.text()
+        if command:
+            # 添加指令到序列列表
+            item = QListWidgetItem(f"[CMD] {command}")
+            item.setCheckState(Qt.CheckState.Checked)
+            self.sequence_list.addItem(item)
+            self.log_message(f"已添加指令到序列: {command}")
+        else:
+            self.log_message('请先输入指令和参数')
+    
+    def add_delay_to_sequence(self):
+        """
+        添加延迟到序列列表
+        """
+        # 弹出输入延迟时间的对话框
+        from PyQt6.QtWidgets import QInputDialog
+        delay, ok = QInputDialog.getInt(self, '添加延迟', '请输入延迟时间（毫秒）:', 1000, 1, 30000)
+        if ok:
+            # 添加延迟到序列列表
+            item = QListWidgetItem(f"[DELAY] {delay}ms")
+            item.setCheckState(Qt.CheckState.Checked)
+            self.sequence_list.addItem(item)
+            self.log_message(f"已添加延迟到序列: {delay}ms")
+    
+    def execute_sequence(self):
+        """
+        执行指令序列
+        """
+        if self.sequence_list.count() == 0:
+            self.log_message('序列为空，请先添加指令或延迟')
+            return
+        
+        self.log_message('开始执行指令序列...')
+        
+        # 遍历序列列表，执行每个勾选的指令或延迟
+        for i in range(self.sequence_list.count()):
+            item = self.sequence_list.item(i)
+            # 检查是否勾选
+            if item.checkState() != Qt.CheckState.Checked:
+                continue
+            
+            text = item.text()
+            
+            if text.startswith('[CMD]'):
+                # 执行指令
+                command = text[5:].strip()
+                self.log_message(f'[序列] 执行指令: {command}')
+                
+                # 解析命令和参数
+                parts = command.split(' ')
+                if len(parts) < 1:
+                    self.log_message('[序列] 命令格式错误')
+                    continue
+                
+                cmd = parts[0]
+                args = []
+                kwargs = {}
+                
+                # 解析参数，支持位置参数和关键字参数
+                for part in parts[1:]:
+                    if '=' in part:
+                        # 关键字参数，格式为 key=value
+                        key, value = part.split('=', 1)
+                        kwargs[key] = value
+                    else:
+                        # 位置参数
+                        args.append(part)
+                
+                # 解析服务名和方法名
+                if '.' in cmd:
+                    service_name, method_name = cmd.split('.', 1)
+                else:
+                    self.log_message('[序列] 命令格式错误，应为 service.method')
+                    continue
+                
+                # 向所有已连接通道发送指令
+                self.send_command_to_all_channels(service_name, method_name, command, *args, **kwargs)
+            elif text.startswith('[DELAY]'):
+                # 执行延迟
+                delay_str = text[7:].replace('ms', '').strip()
+                try:
+                    delay = int(delay_str)
+                    self.log_message(f'[序列] 执行延迟: {delay}ms')
+                    # 使用QTimer进行延迟
+                    from PyQt6.QtCore import QTimer
+                    # 创建一个临时的QTimer
+                    timer = QTimer(self)
+                    # 单次触发
+                    timer.setSingleShot(True)
+                    # 启动定时器
+                    timer.start(delay)
+                    # 等待定时器完成
+                    from PyQt6.QtCore import QEventLoop
+                    loop = QEventLoop()
+                    timer.timeout.connect(loop.quit)
+                    loop.exec()
+                except ValueError:
+                    self.log_message(f'[序列] 延迟时间格式错误: {delay_str}')
+        
+        self.log_message('指令序列执行完成')
+    
+    def clear_sequence(self):
+        """
+        清空序列
+        """
+        self.sequence_list.clear()
+        self.log_message('序列已清空')
+    
+    def save_sequence_group(self):
+        """
+        保存当前序列组到CSV文件
+        """
+        if self.sequence_list.count() == 0:
+            self.log_message('序列为空，无法保存')
+            return
+        
+        # 获取配置目录
+        config_dir = config_manager.get_config_dir()
+        
+        # 弹出输入文件名对话框
+        from PyQt6.QtWidgets import QInputDialog
+        filename, ok = QInputDialog.getText(self, '保存序列组', '请输入文件名（不含扩展名）:', text='sequence_group')
+        if not ok or not filename:
+            return
+        
+        # 确保文件名以.csv结尾
+        if not filename.endswith('.csv'):
+            filename += '.csv'
+        
+        # 构建完整路径
+        filepath = os.path.join(config_dir, filename)
+        
+        try:
+            # 保存序列到CSV文件
+            with open(filepath, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(['type', 'content', 'checked'])
+                for i in range(self.sequence_list.count()):
+                    item = self.sequence_list.item(i)
+                    text = item.text()
+                    checked = '1' if item.checkState() == Qt.CheckState.Checked else '0'
+                    if text.startswith('[CMD]'):
+                        writer.writerow(['CMD', text[5:].strip(), checked])
+                    elif text.startswith('[DELAY]'):
+                        writer.writerow(['DELAY', text[7:].replace('ms', '').strip(), checked])
+            
+            self.log_message(f'序列组已保存到: {filepath}')
+        except Exception as e:
+            self.log_message(f'保存序列组失败: {str(e)}')
+    
+    def load_sequence_group(self):
+        """
+        加载已保存的序列组
+        """
+        # 获取配置目录
+        config_dir = config_manager.get_config_dir()
+        
+        # 获取所有CSV文件
+        import glob
+        csv_files = glob.glob(os.path.join(config_dir, '*.csv'))
+        
+        if not csv_files:
+            self.log_message('没有找到保存的序列组')
+            return
+        
+        # 提取文件名（不含路径和扩展名）
+        file_names = [os.path.splitext(os.path.basename(f))[0] for f in csv_files]
+        
+        # 弹出选择对话框
+        from PyQt6.QtWidgets import QInputDialog
+        group_name, ok = QInputDialog.getItem(self, '加载序列组', '选择要加载的序列组:', file_names, 0, False)
+        if not ok or not group_name:
+            return
+        
+        # 构建完整路径
+        filepath = os.path.join(config_dir, group_name + '.csv')
+        
+        try:
+            # 清空当前序列列表
+            self.sequence_list.clear()
+            
+            # 从CSV文件加载序列
+            with open(filepath, 'r', newline='', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                next(reader)  # 跳过表头
+                for row in reader:
+                    if len(row) >= 3:
+                        item_type, content, checked = row[0], row[1], row[2]
+                        if item_type == 'CMD':
+                            item = QListWidgetItem(f"[CMD] {content}")
+                        elif item_type == 'DELAY':
+                            item = QListWidgetItem(f"[DELAY] {content}ms")
+                        else:
+                            continue
+                        
+                        # 设置勾选状态
+                        if checked == '1':
+                            item.setCheckState(Qt.CheckState.Checked)
+                        else:
+                            item.setCheckState(Qt.CheckState.Unchecked)
+                        
+                        self.sequence_list.addItem(item)
+            
+            # 更新序列组标题
+            self.sequence_group.setTitle(f'指令序列 - {group_name}')
+            self.log_message(f'已加载序列组: {group_name}')
+        except Exception as e:
+            self.log_message(f'加载序列组失败: {str(e)}')

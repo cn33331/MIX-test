@@ -6,7 +6,7 @@ class RpcClient:
     def __init__(self, ip, port):
         self.ip = ip
         self.port = port
-        self.services = ['relay', 'lucifer', 'eeprom', 'sib_board']
+        self.services = []
         self.mix8_client = None
         self.connected = False
         print(f"初始化RPC客户端: {ip}:{port}")
@@ -100,19 +100,6 @@ class RpcClient:
                 return self.services
         return self.services
     
-    def get_proxy(self, service_name):
-        """
-        获取服务代理
-        """
-        if self.connected and self.mix8_client:
-            try:
-                # 调用MIX8客户端的方法获取服务代理
-                return self.mix8_client.client.get_proxy(service_name)
-            except Exception as e:
-                print(f"获取服务代理失败: {e}")
-                return None
-        return None
-    
     def send_command(self, service_name, method_name, *args, **kwargs):
         """
         发送指令
@@ -122,15 +109,45 @@ class RpcClient:
             return f"错误: RPC客户端未连接"
         
         try:
-            proxy = self.get_proxy(service_name)
-            if proxy:
-                method = getattr(proxy, method_name, None)
-                if method:
-                    return method(*args, **kwargs)
-                else:
-                    return f"错误: 方法 {method_name} 不存在"
-            else:
-                return f"错误: 服务 {service_name} 不存在"
+            ret = self.mix8_client.client.stub(service_name, method_name, *args, **kwargs)
+            return ret
         except Exception as e:
             print(f"发送指令失败: {e}")
             return f"错误: {str(e)}"
+    
+    def get_all_commands(self):
+        """
+        获取所有命令信息，包括服务列表和每个服务的方法及其文档
+        """
+        if not self.connected:
+            print(f"RPC客户端未连接: {self.ip}:{self.port}")
+            return {}
+        
+        try:
+            # 获取所有服务列表
+            services = self.mix8_client._list_remote_services()
+            commands_info = {}
+            
+            # 为每个服务获取方法信息
+            for service in services:
+                try:
+                    # 调用methods_info获取服务的方法信息
+                    methods_obj, sub_methods = self.mix8_client.methods_info(service)
+                    commands_info[service] = {}
+                    
+                    # 提取每个方法的文档
+                    for method in sub_methods:
+                        if method in methods_obj['methods'] and methods_obj['methods'][method].get('__doc__'):
+                            doc = methods_obj['methods'][method]['__doc__']
+                            params = methods_obj['methods'][method].get('params', [])
+                            commands_info[service][method] = {
+                                'doc': doc,
+                                'params': params
+                            }
+                except Exception as e:
+                    print(f"获取服务 {service} 的方法信息失败: {e}")
+            
+            return commands_info
+        except Exception as e:
+            print(f"获取命令信息失败: {e}")
+            return {}

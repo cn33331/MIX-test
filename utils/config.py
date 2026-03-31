@@ -13,6 +13,12 @@ class ConfigManager:
         self._ensure_dir_exists()
         self.config = self.load_config()
     
+    def get_config_dir(self):
+        """
+        获取配置目录
+        """
+        return self.config_dir
+    
     def _get_config_dir(self):
         """
         获取配置目录路径

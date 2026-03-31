@@ -22,6 +22,8 @@
    ```
 
 # 项目介绍
+MIX Test Control 是一个用于控制和测试 MIX8 设备的 GUI 应用，支持多通道管理、RPC 通信、命令自动提示和文档显示等功能。
+
 ## 项目功能
 1. 主窗口 ：多个通道IP的显示。包含参数输入、指令发送、日志显示等功能。
    1. 通道配置：
@@ -31,7 +33,11 @@
       4. 通道连接状态：连接成功后，在通道列表中显示连接状态。
       5. 通道指令发送：对当前已连接的通道同步发送指令
       6. 通道数目可能会很多，达到24个，有一个组件方便拉动。
-   2. 参考 mix8/mix8.py 中的methods_info和subMethods_info函数。命令列表在输入的时候下面，会有提示，方便补充。选中对应的命令后，另外有个小窗口，显示该命令的详细说明doc。
+   2. 命令提示和文档：
+      1. 连接通道时自动从MIX8设备获取所有命令信息，包括服务列表和每个服务的方法及其文档
+      2. 命令信息保存到commands_info.json文件，下次打开应用时自动加载
+      3. 命令输入时会显示匹配的命令提示，支持点击选择
+      4. 选中命令后会显示该命令的详细说明和参数信息
    3. 参考/mix8/mix8.py完成RPC通信的建立和指令的发送。
 ## 项目文档结构
 
@@ -62,5 +68,12 @@ MIX-test/
 | param_input | ui/main_window.py | 命令和参数输入框，cmd_input选择命令后按回车会显示命令，然后手动添加参数，作为最终发送的完整命令 |
 | send_cmd_button | ui/main_window.py | 发送按钮，发送param_input中的完整命令和参数到所有已连接通道 |
 | log_text | ui/main_window.py | 日志显示，显示应用运行日志和操作结果 |
-| history_list | ui/main_window.py | 历史指令列表，显示已发送的命令，点击可直接再次发送 |
+| history_list | ui/main_window.py | 历史指令列表，显示已发送的命令，双击可直接再次发送，右击可选择删除或添加到序列 |
+| sequence_list | ui/main_window.py | 指令序列列表，显示添加的指令和延迟，每一行有勾选框（默认勾选），取消勾选时不执行该指令，支持按顺序执行，右击可删除指令，支持保存和加载序列组 |
+| add_cmd_btn | ui/main_window.py | 添加指令按钮，将当前param_input中的命令添加到序列列表 |
+| add_delay_btn | ui/main_window.py | 添加延迟按钮，弹出对话框输入延迟时间并添加到序列列表 |
+| execute_sequence_btn | ui/main_window.py | 执行序列按钮，按照序列列表的顺序执行指令和延迟 |
+| clear_sequence_btn | ui/main_window.py | 清空序列按钮，清空序列列表中的所有内容 |
+| save_sequence_btn | ui/main_window.py | 保存序列组按钮，将当前序列列表保存为CSV文件，弹出对话框可修改文件名 |
+| load_sequence_btn | ui/main_window.py | 加载序列组按钮，从CSV文件加载已保存的序列组，弹出对话框可选择要加载的组 |
 

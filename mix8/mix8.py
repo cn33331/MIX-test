@@ -79,6 +79,7 @@ if __name__ == '__main__':
     measure_info = RPC.subMethods_info("power","measure")
     # power.measureCurrentByBattery(20MA,100)
     # ret = RPC.client.stub("power","measureCurrentByBattery","20MA",100)
+    # ret = RPC.client.stub("power","measure","PP1V8_SYS",count=400, sample_rate=4000)
     try:
         ret = RPC.client.stub("relay","reset")
         print("*"*100)
