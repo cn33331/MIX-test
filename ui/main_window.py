@@ -14,7 +14,7 @@ import glob
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.version = 'v1.1'
+        self.version = 'v1.2'
         self.setWindowTitle(f'MIX Test Control {self.version}')
         self.setGeometry(100, 100, 800, 600)
         self.rpc_clients = {}  # 保存已连接的RPC客户端
@@ -163,6 +163,11 @@ class MainWindow(QMainWindow):
         add_delay_btn.setMinimumHeight(30)
         add_delay_btn.clicked.connect(self.add_delay_to_sequence)
         sequence_buttons_layout.addWidget(add_delay_btn)
+        
+        add_pause_btn = QPushButton('添加暂停')
+        add_pause_btn.setMinimumHeight(30)
+        add_pause_btn.clicked.connect(self.add_pause_to_sequence)
+        sequence_buttons_layout.addWidget(add_pause_btn)
         
         execute_sequence_btn = QPushButton('执行序列')
         execute_sequence_btn.setMinimumHeight(30)
@@ -789,13 +794,49 @@ class MainWindow(QMainWindow):
         item = self.sequence_list.itemAt(position)
         if item:
             menu = QMenu()
+            modify_action = menu.addAction("修改")
             delete_action = menu.addAction("删除")
             action = menu.exec(self.sequence_list.mapToGlobal(position))
-            if action == delete_action:
+            if action == modify_action:
+                # 修改序列项
+                self.modify_sequence_item(item)
+            elif action == delete_action:
                 # 删除序列项
                 row = self.sequence_list.row(item)
                 self.sequence_list.takeItem(row)
                 self.log_message("已从序列中删除指令")
+    
+    def modify_sequence_item(self, item):
+        """
+        修改序列项
+        """
+        text = item.text()
+        row = self.sequence_list.row(item)
+        
+        if text.startswith('[CMD]'):
+            # 修改指令
+            current_command = text[5:].strip()
+            from PyQt6.QtWidgets import QInputDialog
+            new_command, ok = QInputDialog.getText(self, '修改指令', '请输入新的指令和参数:', text=current_command)
+            if ok:
+                item.setText(f"[CMD] {new_command}")
+                self.log_message(f"已修改序列中的指令: {new_command}")
+        elif text.startswith('[DELAY]'):
+            # 修改延迟
+            current_delay = text[7:].replace('ms', '').strip()
+            from PyQt6.QtWidgets import QInputDialog
+            new_delay, ok = QInputDialog.getInt(self, '修改延迟', '请输入新的延迟时间（毫秒）:', int(current_delay), 1, 30000)
+            if ok:
+                item.setText(f"[DELAY] {new_delay}ms")
+                self.log_message(f"已修改序列中的延迟: {new_delay}ms")
+        elif text.startswith('[PAUSE]'):
+            # 修改暂停
+            current_message = text[7:].strip()
+            from PyQt6.QtWidgets import QInputDialog
+            new_message, ok = QInputDialog.getText(self, '修改暂停', '请输入新的暂停提示信息:', text=current_message)
+            if ok:
+                item.setText(f"[PAUSE] {new_message}")
+                self.log_message(f"已修改序列中的暂停: {new_message}")
     
     def add_command_to_sequence(self):
         """
@@ -824,6 +865,20 @@ class MainWindow(QMainWindow):
             item.setCheckState(Qt.CheckState.Checked)
             self.sequence_list.addItem(item)
             self.log_message(f"已添加延迟到序列: {delay}ms")
+    
+    def add_pause_to_sequence(self):
+        """
+        添加暂停到序列列表
+        """
+        # 弹出输入暂停提示信息的对话框
+        from PyQt6.QtWidgets import QInputDialog
+        message, ok = QInputDialog.getText(self, '添加暂停', '请输入暂停提示信息:', text='执行到此处，是否继续？')
+        if ok:
+            # 添加暂停到序列列表
+            item = QListWidgetItem(f"[PAUSE] {message}")
+            item.setCheckState(Qt.CheckState.Checked)
+            self.sequence_list.addItem(item)
+            self.log_message(f"已添加暂停到序列: {message}")
     
     def execute_sequence(self):
         """
@@ -899,6 +954,22 @@ class MainWindow(QMainWindow):
                     loop.exec()
                 except ValueError:
                     self.log_message(f'[序列] 延迟时间格式错误: {delay_str}')
+            elif text.startswith('[PAUSE]'):
+                # 执行暂停
+                pause_message = text[7:].strip()
+                self.log_message(f'[序列] 执行暂停: {pause_message}')
+                
+                # 弹出对话框，提示用户是否继续
+                from PyQt6.QtWidgets import QMessageBox
+                reply = QMessageBox.question(self, '序列暂停', 
+                                           pause_message, 
+                                           QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, 
+                                           QMessageBox.StandardButton.No)
+                
+                if reply == QMessageBox.StandardButton.No:
+                    # 用户选择停止，退出循环
+                    self.log_message('[序列] 用户选择停止执行')
+                    return
         
         self.log_message('指令序列执行完成')
     

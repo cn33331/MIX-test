@@ -69,10 +69,11 @@ MIX-test/
 | send_cmd_button | ui/main_window.py | 发送按钮，发送param_input中的完整命令和参数到所有已连接通道 |
 | log_text | ui/main_window.py | 日志显示，显示应用运行日志和操作结果 |
 | history_list | ui/main_window.py | 历史指令列表，显示已发送的命令，双击可直接再次发送，右击可选择删除或添加到序列 |
-| sequence_list | ui/main_window.py | 指令序列列表，显示添加的指令和延迟，每一行有勾选框（默认勾选），取消勾选时不执行该指令，支持按顺序执行，右击可删除指令，支持保存和加载序列组 |
+| sequence_list | ui/main_window.py | 指令序列列表，显示添加的指令、延迟和暂停，每一行有勾选框（默认勾选），取消勾选时不执行该指令，支持按顺序执行，右击可删除指令，支持保存和加载序列组 |
 | add_cmd_btn | ui/main_window.py | 添加指令按钮，将当前param_input中的命令添加到序列列表 |
 | add_delay_btn | ui/main_window.py | 添加延迟按钮，弹出对话框输入延迟时间并添加到序列列表 |
-| execute_sequence_btn | ui/main_window.py | 执行序列按钮，按照序列列表的顺序执行指令和延迟 |
+| add_pause_btn | ui/main_window.py | 添加暂停按钮，弹出对话框输入暂停提示信息并添加到序列列表 |
+| execute_sequence_btn | ui/main_window.py | 执行序列按钮，按照序列列表的顺序执行指令、延迟和暂停 |
 | clear_sequence_btn | ui/main_window.py | 清空序列按钮，清空序列列表中的所有内容 |
 | save_sequence_btn | ui/main_window.py | 保存序列组按钮，将当前序列列表保存为CSV文件，弹出对话框可修改文件名 |
 | load_sequence_btn | ui/main_window.py | 加载序列组按钮，从CSV文件加载已保存的序列组，弹出对话框可选择要加载的组 |
