@@ -3,13 +3,22 @@ import os
 import importlib.util
 
 class RpcClient:
-    def __init__(self, ip, port):
+    def __init__(self, ip, port, log_callback=None):
         self.ip = ip
         self.port = port
         self.services = []
         self.mix8_client = None
         self.connected = False
-        print(f"初始化RPC客户端: {ip}:{port}")
+        self.log_callback = log_callback
+        self._log(f"初始化RPC客户端: {ip}:{port}")
+    
+    def _log(self, message):
+        """
+        记录日志
+        """
+        print(message)
+        if self.log_callback:
+            self.log_callback(message)
     
     def connect(self):
         """
@@ -43,10 +52,10 @@ class RpcClient:
             absolute_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'mix8', 'mix8.py'))
             possible_paths.append(absolute_path)
             
-            print(f"尝试加载MIX8模块，搜索路径:")
+            self._log(f"尝试加载MIX8模块，搜索路径:")
             for i, path in enumerate(possible_paths, 1):
                 exists = "存在" if os.path.exists(path) else "不存在"
-                print(f"  {i}. {path} [{exists}]")
+                self._log(f"  {i}. {path} [{exists}]")
             
             mix8_path = None
             for path in possible_paths:
@@ -55,7 +64,7 @@ class RpcClient:
                     break
             
             if mix8_path:
-                print(f"找到MIX8模块: {mix8_path}")
+                self._log(f"找到MIX8模块: {mix8_path}")
                 # 动态添加mix8目录和mix子目录到Python路径
                 mix8_dir = os.path.dirname(mix8_path)
                 mix_dir = os.path.join(mix8_dir, 'mix')
@@ -71,20 +80,20 @@ class RpcClient:
                     try:
                         self.mix8_client = mix8_module.RpcClient(self.ip, int(self.port))
                         self.connected = True
-                        print(f"成功连接到MIX8设备: {self.ip}:{self.port}")
+                        self._log(f"成功连接到MIX8设备: {self.ip}:{self.port}")
                     except Exception as e:
-                        print(f"连接MIX8设备失败: {e}")
+                        self._log(f"连接MIX8设备失败: {e}")
                         self.connected = False
                 except Exception as e:
-                    print(f"加载MIX8模块失败: {e}")
-                    print("请确保mix8目录包含所有必要的依赖文件")
+                    self._log(f"加载MIX8模块失败: {e}")
+                    self._log("请确保mix8目录包含所有必要的依赖文件")
                     self.connected = False
             else:
-                print(f"MIX8客户端文件不存在")
-                print("请将mix8目录放在应用程序旁边")
+                self._log(f"MIX8客户端文件不存在")
+                self._log("请将mix8目录放在应用程序旁边")
                 self.connected = False
         except Exception as e:
-            print(f"初始化MIX8客户端失败: {e}")
+            self._log(f"初始化MIX8客户端失败: {e}")
             self.connected = False
     
     def list_remote_services(self):
@@ -96,7 +105,7 @@ class RpcClient:
                 # 调用MIX8客户端的方法获取服务列表
                 return self.mix8_client._list_remote_services()
             except Exception as e:
-                print(f"获取服务列表失败: {e}")
+                self._log(f"获取服务列表失败: {e}")
                 return self.services
         return self.services
     
@@ -105,14 +114,14 @@ class RpcClient:
         发送指令
         """
         if not self.connected:
-            print(f"RPC客户端未连接: {self.ip}:{self.port}")
+            self._log(f"RPC客户端未连接: {self.ip}:{self.port}")
             return f"错误: RPC客户端未连接"
         
         try:
             ret = self.mix8_client.client.stub(service_name, method_name, *args, **kwargs)
             return ret
         except Exception as e:
-            print(f"发送指令失败: {e}")
+            self._log(f"发送指令失败: {e}")
             return f"错误: {str(e)}"
     
     def get_all_commands(self):
@@ -120,7 +129,7 @@ class RpcClient:
         获取所有命令信息，包括服务列表和每个服务的方法及其文档
         """
         if not self.connected:
-            print(f"RPC客户端未连接: {self.ip}:{self.port}")
+            self._log(f"RPC客户端未连接: {self.ip}:{self.port}")
             return {}
         
         try:
@@ -145,9 +154,9 @@ class RpcClient:
                                 'params': params
                             }
                 except Exception as e:
-                    print(f"获取服务 {service} 的方法信息失败: {e}")
+                    self._log(f"获取服务 {service} 的方法信息失败: {e}")
             
             return commands_info
         except Exception as e:
-            print(f"获取命令信息失败: {e}")
+            self._log(f"获取命令信息失败: {e}")
             return {}

@@ -14,9 +14,9 @@ import glob
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.version = 'v1.2'
+        self.version = 'v1.3'
         self.setWindowTitle(f'MIX Test Control {self.version}')
-        self.setGeometry(100, 100, 800, 600)
+        self.setGeometry(100, 100, 800, 700)
         self.rpc_clients = {}  # 保存已连接的RPC客户端
         self.init_ui()
         self.load_channels_from_config()
@@ -63,6 +63,11 @@ class MainWindow(QMainWindow):
         self.cmd_input.returnPressed.connect(self.copy_command_to_param)
         input_layout.addWidget(QLabel('命令:'))
         input_layout.addWidget(self.cmd_input, 1)
+        
+        # 初始化命令自动完成
+        self.cmd_model = QStringListModel()
+        completer = QCompleter(self.cmd_model, self)
+        self.cmd_input.setCompleter(completer)
         
         # 命令提示列表
         self.command_hint_list = QListWidget()
@@ -521,7 +526,7 @@ class MainWindow(QMainWindow):
             
             # 尝试实际连接到MIX8设备
             from core.rpc_client import RpcClient
-            client = RpcClient(ip, port)
+            client = RpcClient(ip, port, log_callback=self.log_message)
             
             # 调用connect方法进行连接
             if client.connect():
