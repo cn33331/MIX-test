@@ -14,7 +14,7 @@ import glob
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.version = 'v1.3'
+        self.version = 'v1.4'
         self.setWindowTitle(f'MIX Test Control {self.version}')
         self.setGeometry(100, 100, 800, 700)
         self.rpc_clients = {}  # 保存已连接的RPC客户端
@@ -339,7 +339,7 @@ class MainWindow(QMainWindow):
                     try:
                         # 发送命令，支持位置参数和关键字参数
                         result = client.send_command(service_name, method_name, *args, **kwargs)
-                        self.log_message(f'[{channel_name}] 发送命令: {command_with_params}，结果: {result}')
+                        self.log_message(f'[{channel_name}] send:{command_with_params} \n recv:{result}')
                         connected_channels.append(channel_name)
                     except Exception as e:
                         self.log_message(f'[{channel_name}] 发送命令失败: {command_with_params}，错误: {str(e)}')
@@ -347,7 +347,9 @@ class MainWindow(QMainWindow):
                     self.log_message(f'[{channel_name}] RPC客户端未找到，请重新连接')
         
         if connected_channels:
-            self.log_message(f'已向 {len(connected_channels)} 个已连接通道发送命令: {connected_channels}')
+            # self.log_message(f'已向 {len(connected_channels)} 个已连接通道发送命令: {connected_channels}')
+            # self.log_message(f'send:{connected_channels}')
+            pass
         else:
             self.log_message('没有已连接的通道')
     

@@ -4,6 +4,7 @@ import time
 import random
 import string
 import logging
+import os
 
 
 # level=logging.INFO) # Text logging level for the message ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
@@ -29,7 +30,9 @@ class RpcClient(object):
         self.xavier_ip = xavier_ip
         self.xavier_port = xavier_port
         self.client = ProxyFactory.JsonZmqFactory('tcp://%s:%s' % (self.xavier_ip, self.xavier_port))
-        self.logger = init_logger("./rpcClient.log")
+        # 使用用户主目录作为日志文件位置
+        log_path = os.path.expanduser("~/rpcClient.log")
+        self.logger = init_logger(log_path)
         self.all_method_doc = {}
 
     def _list_remote_services(self):
@@ -75,7 +78,8 @@ class RpcClient(object):
 
 
 if __name__ == '__main__':
-    RPC = RpcClient('192.168.99.36', 7801)
+    # RPC = RpcClient('192.168.99.36', 7801)
+    RPC = RpcClient('127.0.0.1', 7801)
     measure_info = RPC.subMethods_info("power","measure")
     # power.measureCurrentByBattery(20MA,100)
     # ret = RPC.client.stub("power","measureCurrentByBattery","20MA",100)

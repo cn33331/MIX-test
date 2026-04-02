@@ -17,8 +17,9 @@ class RpcClient:
         记录日志
         """
         print(message)
-        if self.log_callback:
-            self.log_callback(message)
+        #debug
+        # if self.log_callback:
+        #     self.log_callback(message)
     
     def connect(self):
         """
