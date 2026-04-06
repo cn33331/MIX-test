@@ -64,11 +64,6 @@ class MainWindow(QMainWindow):
         input_layout.addWidget(QLabel('命令:'))
         input_layout.addWidget(self.cmd_input, 1)
         
-        # 初始化命令自动完成
-        self.cmd_model = QStringListModel()
-        completer = QCompleter(self.cmd_model, self)
-        self.cmd_input.setCompleter(completer)
-        
         # 命令提示列表
         self.command_hint_list = QListWidget()
         self.command_hint_list.setMinimumHeight(100)
@@ -510,8 +505,8 @@ class MainWindow(QMainWindow):
             for method in methods:
                 commands.append(f"{service}.{method}")
         
-        # 更新自动完成
-        self.cmd_model.setStringList(commands)
+        # 保存命令列表供show_command_hints使用
+        self.commands_list = commands
     
     def connect_channel(self, row):
         """
@@ -654,14 +649,8 @@ class MainWindow(QMainWindow):
             self.command_hint_list.hide()
             return
         
-        # 从json文件加载命令信息
-        commands_info = self.load_commands_info()
-        
-        # 构建命令列表
-        commands = []
-        for service, methods in commands_info.items():
-            for method in methods:
-                commands.append(f"{service}.{method}")
+        # 使用已加载的命令列表
+        commands = getattr(self, 'commands_list', [])
         
         # 过滤匹配的命令
         matched_commands = [cmd for cmd in commands if text.lower() in cmd.lower()]
@@ -891,6 +880,11 @@ class MainWindow(QMainWindow):
         """
         执行指令序列
         """
+        # 检查是否有通道连接
+        if not self.rpc_clients:
+            self.log_message('没有已连接的通道，请先连接通道')
+            return
+        
         if self.sequence_list.count() == 0:
             self.log_message('序列为空，请先添加指令或延迟')
             return
@@ -1024,6 +1018,8 @@ class MainWindow(QMainWindow):
                         writer.writerow(['CMD', text[5:].strip(), checked])
                     elif text.startswith('[DELAY]'):
                         writer.writerow(['DELAY', text[7:].replace('ms', '').strip(), checked])
+                    elif text.startswith('[PAUSE]'):
+                        writer.writerow(['PAUSE', text[7:].strip(), checked])
             
             self.log_message(f'序列组已保存到: {filepath}')
         except Exception as e:
@@ -1071,6 +1067,8 @@ class MainWindow(QMainWindow):
                             item = QListWidgetItem(f"[CMD] {content}")
                         elif item_type == 'DELAY':
                             item = QListWidgetItem(f"[DELAY] {content}ms")
+                        elif item_type == 'PAUSE':
+                            item = QListWidgetItem(f"[PAUSE] {content}")
                         else:
                             continue
                         
