@@ -40,17 +40,12 @@ class RpcClient:
             # 检查是否在PyInstaller打包环境中
             if hasattr(sys, '_MEIPASS'):
                 # 在打包环境中，添加临时目录作为搜索路径
-                meipass_path = os.path.join(sys._MEIPASS, 'mix8', 'mix8.py')
+                meipass_path = os.path.join(sys._MEIPASS, 'mix', 'mix8_rpc_client.py')
                 possible_paths.insert(0, meipass_path)
-            
-            # # 添加相对于当前文件的路径
-            # current_dir = os.path.dirname(__file__)
-            # relative_path = os.path.join(current_dir, '..', 'mix8', 'mix8.py')
-            # possible_paths.append(relative_path)
-            
+
             
             #添加绝对路径
-            absolute_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'mix8', 'mix8.py'))
+            absolute_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'mix', 'mix8_rpc_client.py'))
             possible_paths.append(absolute_path)
             
             self._log(f"尝试加载MIX8模块，搜索路径:")

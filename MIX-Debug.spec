@@ -6,7 +6,7 @@ a = Analysis(
     pathex=['/Users/gdlocal/Desktop/myCode/myAPP/MIX-test'],
     binaries=[],
     datas=[
-        ('/Users/gdlocal/Desktop/myCode/myAPP/MIX-test/mix8', 'mix8')
+        ('/Users/gdlocal/Desktop/myCode/myAPP/MIX-test/mix', 'mix')
     ],
     hiddenimports=['__future__', 'zmq', 'ujson', 'ipaddress', 'uuid'],
     hookspath=[],

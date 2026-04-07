@@ -22,4 +22,4 @@ source /Users/gdlocal/Desktop/env_sum/vis/bin/activate
 
 # 启动RPC服务器
 echo "正在启动RPC服务器..."
-python3 simple_rpc_server.py
+python3 mix8_rpc_server.py

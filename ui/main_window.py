@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                             QLabel, QLineEdit, QPushButton, QTextEdit, 
                             QTableWidget, QTableWidgetItem, QGroupBox, 
                             QDialog, QSpinBox, QGridLayout, QScrollArea, QComboBox,
-                            QCompleter, QListWidget, QListWidgetItem, QMenu)
+                            QCompleter, QListWidget, QListWidgetItem, QMenu, QSplitter, QHeaderView, QSizePolicy)
 from PyQt6.QtCore import Qt, QStringListModel
 from utils.config import config_manager
 import json
@@ -14,25 +14,30 @@ import glob
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.version = 'v1.4'
+        self.version = 'v1.5'
         self.setWindowTitle(f'MIX Test Control {self.version}')
-        self.setGeometry(100, 100, 800, 700)
+        # 设置最小窗口大小，适应低分辨率设备
+        self.setMinimumSize(800, 600)
+        # 初始窗口大小，适应高分辨率设备
+        self.setGeometry(100, 100, 1024, 768)
         self.rpc_clients = {}  # 保存已连接的RPC客户端
         self.init_ui()
         self.load_channels_from_config()
         self.load_history_from_config()
+        # 连接窗口大小变化信号
+        self.resizeEvent = self.on_resize
     
     def init_ui(self):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         
-        # 主布局改为水平布局，分为左侧和右侧
-        main_layout = QHBoxLayout(central_widget)
-        main_layout.setContentsMargins(10, 10, 10, 10)
-        main_layout.setSpacing(10)
+        # 使用QSplitter创建可调整大小的布局
+        main_splitter = QSplitter(Qt.Orientation.Horizontal, central_widget)
+        main_splitter.setContentsMargins(10, 10, 10, 10)
         
-        # 左侧布局
-        left_layout = QVBoxLayout()
+        # 左侧区域
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
         left_layout.setSpacing(10)
         
         # 日志显示区域（左侧上方）
@@ -42,7 +47,7 @@ class MainWindow(QMainWindow):
         
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
-        self.log_text.setMinimumHeight(500)
+        self.log_text.setMinimumHeight(200)  # 减少最小高度，适应低分辨率
         log_layout.addWidget(self.log_text)
         
         log_group.setLayout(log_layout)
@@ -66,7 +71,7 @@ class MainWindow(QMainWindow):
         
         # 命令提示列表
         self.command_hint_list = QListWidget()
-        self.command_hint_list.setMinimumHeight(100)
+        self.command_hint_list.setMinimumHeight(80)  # 减少最小高度
         self.command_hint_list.itemClicked.connect(self.select_command)
         self.command_hint_list.hide()
         
@@ -83,7 +88,7 @@ class MainWindow(QMainWindow):
         
         self.cmd_info_text = QTextEdit()
         self.cmd_info_text.setReadOnly(True)
-        self.cmd_info_text.setMinimumHeight(100)
+        self.cmd_info_text.setMinimumHeight(80)  # 减少最小高度
         self.cmd_info_text.setPlainText('请选择一个命令以查看详细信息')
         
         cmd_info_layout.addWidget(self.cmd_info_text)
@@ -118,8 +123,11 @@ class MainWindow(QMainWindow):
         cmd_group.setLayout(cmd_layout)
         left_layout.addWidget(cmd_group)
         
-        # 右侧布局
-        right_layout = QVBoxLayout()
+        main_splitter.addWidget(left_widget)
+        
+        # 右侧区域
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
         right_layout.setSpacing(10)
         
         # 历史指令区域（右侧上方）
@@ -128,7 +136,7 @@ class MainWindow(QMainWindow):
         history_layout.setContentsMargins(10, 10, 10, 10)
         
         self.history_list = QListWidget()
-        self.history_list.setMinimumHeight(150)
+        self.history_list.setMinimumHeight(100)  # 减少最小高度
         self.history_list.itemDoubleClicked.connect(self.select_history_command)
         self.history_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.history_list.customContextMenuRequested.connect(self.show_history_context_menu)
@@ -145,41 +153,42 @@ class MainWindow(QMainWindow):
         
         # 序列列表
         self.sequence_list = QListWidget()
-        self.sequence_list.setMinimumHeight(150)
+        self.sequence_list.setMinimumHeight(100)  # 减少最小高度
         self.sequence_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.sequence_list.customContextMenuRequested.connect(self.show_sequence_context_menu)
         sequence_layout.addWidget(self.sequence_list)
         
-        # 序列操作按钮
-        sequence_buttons_layout = QHBoxLayout()
-        sequence_buttons_layout.setSpacing(10)
+        # 序列操作按钮 - 使用网格布局，适应不同宽度
+        sequence_buttons_widget = QWidget()
+        sequence_buttons_layout = QGridLayout(sequence_buttons_widget)
+        sequence_buttons_layout.setSpacing(5)
         
         add_cmd_btn = QPushButton('添加指令')
         add_cmd_btn.setMinimumHeight(30)
         add_cmd_btn.clicked.connect(self.add_command_to_sequence)
-        sequence_buttons_layout.addWidget(add_cmd_btn)
+        sequence_buttons_layout.addWidget(add_cmd_btn, 0, 0)
         
         add_delay_btn = QPushButton('添加延迟')
         add_delay_btn.setMinimumHeight(30)
         add_delay_btn.clicked.connect(self.add_delay_to_sequence)
-        sequence_buttons_layout.addWidget(add_delay_btn)
+        sequence_buttons_layout.addWidget(add_delay_btn, 0, 1)
         
         add_pause_btn = QPushButton('添加暂停')
         add_pause_btn.setMinimumHeight(30)
         add_pause_btn.clicked.connect(self.add_pause_to_sequence)
-        sequence_buttons_layout.addWidget(add_pause_btn)
+        sequence_buttons_layout.addWidget(add_pause_btn, 1, 0)
         
         execute_sequence_btn = QPushButton('执行序列')
         execute_sequence_btn.setMinimumHeight(30)
         execute_sequence_btn.clicked.connect(self.execute_sequence)
-        sequence_buttons_layout.addWidget(execute_sequence_btn)
+        sequence_buttons_layout.addWidget(execute_sequence_btn, 1, 1)
         
         clear_sequence_btn = QPushButton('清空序列')
         clear_sequence_btn.setMinimumHeight(30)
         clear_sequence_btn.clicked.connect(self.clear_sequence)
-        sequence_buttons_layout.addWidget(clear_sequence_btn)
+        sequence_buttons_layout.addWidget(clear_sequence_btn, 2, 0, 1, 2)  # 跨两列
         
-        sequence_layout.addLayout(sequence_buttons_layout)
+        sequence_layout.addWidget(sequence_buttons_widget)
         
         # 保存和加载按钮
         save_load_layout = QHBoxLayout()
@@ -205,33 +214,34 @@ class MainWindow(QMainWindow):
         ip_layout.setContentsMargins(10, 10, 10, 10)
         ip_layout.setSpacing(10)
         
-        # 按钮布局
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(10)
+        # 按钮布局 - 使用网格布局，适应不同宽度
+        button_widget = QWidget()
+        button_layout = QGridLayout(button_widget)
+        button_layout.setSpacing(5)
         
         # 配置通道按钮
         config_channel_btn = QPushButton('配置通道')
         config_channel_btn.setMinimumHeight(30)
-        button_layout.addWidget(config_channel_btn)
+        button_layout.addWidget(config_channel_btn, 0, 0)
         config_channel_btn.clicked.connect(self.show_config_channel_dialog)
         
         # 批量连接按钮
         batch_connect_btn = QPushButton('批量连接')
         batch_connect_btn.setMinimumHeight(30)
-        button_layout.addWidget(batch_connect_btn)
+        button_layout.addWidget(batch_connect_btn, 0, 1)
         batch_connect_btn.clicked.connect(self.batch_connect)
         
         # 批量断开按钮
         batch_disconnect_btn = QPushButton('批量断开')
         batch_disconnect_btn.setMinimumHeight(30)
-        button_layout.addWidget(batch_disconnect_btn)
+        button_layout.addWidget(batch_disconnect_btn, 1, 0, 1, 2)  # 跨两列
         batch_disconnect_btn.clicked.connect(self.batch_disconnect)
         
-        ip_layout.addLayout(button_layout)
+        ip_layout.addWidget(button_widget)
         
         # 通道列表滚动区域
         scroll_area = QScrollArea()
-        scroll_area.setMinimumHeight(300)
+        scroll_area.setMinimumHeight(200)  # 减少最小高度
         scroll_widget = QWidget()
         scroll_layout = QVBoxLayout(scroll_widget)
         scroll_layout.setContentsMargins(0, 0, 0, 0)
@@ -241,38 +251,62 @@ class MainWindow(QMainWindow):
         self.ip_table.setHorizontalHeaderLabels(['通道', 'IP地址', '端口', '状态', '操作'])
         self.ip_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.ip_table.setSelectionMode(QTableWidget.SelectionMode.MultiSelection)
-        
-        # 设置列宽
-        self.ip_table.setColumnWidth(0, 50)
-        self.ip_table.setColumnWidth(1, 100)
-        self.ip_table.setColumnWidth(2, 50)
-        self.ip_table.setColumnWidth(3, 60)
+        self.ip_table.setMinimumWidth(300)  # 设置最小宽度
+
+        # 设置大小策略，让表格能够铺满
+        self.ip_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        # 设置列宽，使用比例而不是固定值
+        self.ip_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.ip_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.ip_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.ip_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.ip_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.ip_table.setColumnWidth(4, 80)
+
+        # 确保滚动区域可调整大小
+        scroll_area.setWidgetResizable(True)
         
         # 初始化默认通道
         self.ip_table.setItem(0, 0, QTableWidgetItem('Slot1'))
-        self.ip_table.setItem(0, 1, QTableWidgetItem('192.168.99.36'))
-        self.ip_table.setItem(0, 2, QTableWidgetItem('7801'))
-        self.ip_table.setItem(0, 3, QTableWidgetItem('未连接'))
-        
-        # 添加连接按钮
-        connect_btn = QPushButton('连接')
-        connect_btn.setMinimumWidth(80)
-        connect_btn.clicked.connect(lambda: self.connect_channel(0))
-        self.ip_table.setCellWidget(0, 4, connect_btn)
         
         scroll_layout.addWidget(self.ip_table)
-        scroll_widget.setLayout(scroll_layout)
         scroll_area.setWidget(scroll_widget)
-        scroll_area.setWidgetResizable(True)
         ip_layout.addWidget(scroll_area)
         
         ip_group.setLayout(ip_layout)
         right_layout.addWidget(ip_group)
         
-        # 将左右布局添加到主布局
-        main_layout.addLayout(left_layout, 1)
-        main_layout.addLayout(right_layout, 1)
+        main_splitter.addWidget(right_widget)
+        
+        # 设置默认分割比例
+        main_splitter.setSizes([400, 600])  # 适应1024宽度
+        
+        # 设置主布局
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.addWidget(main_splitter)
+    
+    def on_resize(self, event):
+        """
+        窗口大小变化时的处理
+        """
+        # 获取当前窗口大小
+        width = event.size().width()
+        height = event.size().height()
+        
+        # 根据窗口宽度调整分割比例
+        if width < 900:
+            # 低分辨率设备，增加右侧宽度比例
+            if hasattr(self, 'centralWidget') and self.centralWidget():
+                for child in self.centralWidget().children():
+                    if isinstance(child, QSplitter):
+                        child.setSizes([int(width * 0.35), int(width * 0.65)])
+        else:
+            # 高分辨率设备，恢复默认比例
+            if hasattr(self, 'centralWidget') and self.centralWidget():
+                for child in self.centralWidget().children():
+                    if isinstance(child, QSplitter):
+                        child.setSizes([int(width * 0.4), int(width * 0.6)])
     
     def send_command(self):
         """
