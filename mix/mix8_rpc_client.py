@@ -8,6 +8,7 @@ import time
 import json
 import zmq
 import os
+import platform
 import logging
 from logging.handlers import RotatingFileHandler
 
@@ -27,13 +28,60 @@ class RpcClient:
     def __init__(self, xavier_ip, xavier_port):
         self.xavier_ip = xavier_ip
         self.xavier_port = xavier_port
-        self.context = zmq.Context()
-        self.socket = self.context.socket(zmq.DEALER)
-        self.socket.connect(f"tcp://{xavier_ip}:{xavier_port}")
+        self.system = platform.system()
+        self.context = None
+        self.socket = None
+        self.connected = False
         self.identity = os.urandom(16)
         self.logger = init_logger(os.path.expanduser("~/rpcClient.log"))
         self.all_method_doc = {}
-        self._check_version()
+        
+        # 连接到服务器
+        self.connect()
+    
+    def ping(self, ip):
+        """
+        检测IP是否可达
+        使用socket直接尝试建立TCP连接，比系统ping命令更快
+        """
+        try:
+            import socket
+            # 创建socket连接，使用端口7801（RPC服务端口）
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)  # 设置1秒超时，比系统ping更快
+            result = sock.connect_ex((ip, 7801))
+            sock.close()
+            # 如果连接成功，result为0
+            return result == 0
+        except Exception as e:
+            self.logger.error(f"网络检测失败: {e}")
+            return False
+    
+    def connect(self):
+        """
+        连接到服务器
+        """
+        try:
+            # 先进行网络检测
+            if not self.ping(self.xavier_ip):
+                self.logger.info(f'{self.xavier_ip} tester ping fail')
+                self.connected = False
+                return False
+            
+            # 初始化ZeroMQ连接
+            self.context = zmq.Context()
+            self.socket = self.context.socket(zmq.DEALER)
+            self.socket.connect(f"tcp://{self.xavier_ip}:{self.xavier_port}")
+            
+            # 检查连接
+            self._check_version()
+            self.connected = True
+            self.logger.info(f"成功连接到 {self.xavier_ip}:{self.xavier_port}")
+            return True
+        except Exception as e:
+            self.logger.error(f"连接失败: {e}")
+            self.connected = False
+            return False
     
     def _check_version(self):
         """
@@ -185,33 +233,36 @@ if __name__ == '__main__':
     # 创建客户端实例
     client = RpcClient('127.0.0.1', 7801)
     
-    try:
-        # 测试获取服务列表
-        services = client._list_remote_services()
-        print(f"服务列表: {services}")
-        
-        # 测试获取方法文档
-        measure_info = client.subMethods_info("power", "measure")
-        print(f"power.measure 文档: {measure_info}")
-        
-        # 测试调用远程方法
-        print("\n测试调用 relay.reset():")
-        ret = client.stub("relay", "reset")
-        print("*"*100)
-        print(ret)
-        print("*"*100)
-        
-        # 测试调用带参数的方法
-        print("\n测试调用 power.measure():")
-        ret = client.stub("power", "measure", "PP1V8_SYS", count=400, sample_rate=4000)
-        print("*"*100)
-        print(ret)
-        print("*"*100)
-        
-    except Exception as e:
-        print("*"*100)
-        print(f"错误: {e}")
-        print("*"*100)
-    finally:
-        # 关闭连接
-        client.close()
+    if client.connected:
+        try:
+            # 测试获取服务列表
+            services = client._list_remote_services()
+            print(f"服务列表: {services}")
+            
+            # 测试获取方法文档
+            measure_info = client.subMethods_info("power", "measure")
+            print(f"power.measure 文档: {measure_info}")
+            
+            # 测试调用远程方法
+            print("\n测试调用 relay.reset():")
+            ret = client.stub("relay", "reset")
+            print("*"*100)
+            print(ret)
+            print("*"*100)
+            
+            # 测试调用带参数的方法
+            print("\n测试调用 power.measure():")
+            ret = client.stub("power", "measure", "PP1V8_SYS", count=400, sample_rate=4000)
+            print("*"*100)
+            print(ret)
+            print("*"*100)
+            
+        except Exception as e:
+            print("*"*100)
+            print(f"错误: {e}")
+            print("*"*100)
+        finally:
+            # 关闭连接
+            client.close()
+    else:
+        print("连接失败，无法执行测试")

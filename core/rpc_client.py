@@ -75,10 +75,15 @@ class RpcClient:
                     # 初始化MIX8客户端
                     try:
                         self.mix8_client = mix8_module.RpcClient(self.ip, int(self.port))
-                        self.connected = True
-                        self._log(f"成功连接到MIX8设备: {self.ip}:{self.port}")
+                        # 检查连接状态
+                        if hasattr(self.mix8_client, 'connected') and self.mix8_client.connected:
+                            self.connected = True
+                            print(f"成功连接到MIX8设备: {self.ip}:{self.port}")
+                        else:
+                            self.connected = False
+                            print(f"连接MIX8设备失败: 客户端初始化失败")
                     except Exception as e:
-                        self._log(f"连接MIX8设备失败: {e}")
+                        print(f"连接MIX8设备失败: {e}")
                         self.connected = False
                 except Exception as e:
                     self._log(f"加载MIX8模块失败: {e}")
@@ -114,7 +119,7 @@ class RpcClient:
             return f"错误: RPC客户端未连接"
         
         try:
-            ret = self.mix8_client.client.stub(service_name, method_name, *args, **kwargs)
+            ret = self.mix8_client.stub(service_name, method_name, *args, **kwargs)
             return ret
         except Exception as e:
             self._log(f"发送指令失败: {e}")
