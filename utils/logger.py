@@ -56,11 +56,13 @@ def init_logger():
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
     
+    # 创建日志格式
+    formatter = logging.Formatter('%(asctime)s %(filename)s:%(lineno)s > %(message)s', datefmt='%Y/%m/%d %H:%M:%S')
+    
     # 添加文件处理器
     try:
         handler = logging.handlers.RotatingFileHandler(log_file, mode='a', maxBytes=5*1024*1024, backupCount=5)
         handler.setLevel(logging.DEBUG)
-        formatter = logging.Formatter('%(asctime)s %(filename)s:%(lineno)s > %(message)s', datefmt='%Y/%m/%d %H:%M:%S')
         handler.setFormatter(formatter)
         logger.addHandler(handler)
     except Exception as e:
