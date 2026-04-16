@@ -3,9 +3,13 @@ import logging.handlers
 import os
 import datetime
 
-def init_logger():
+def init_logger(name="AppLogger", log_file="app.log"):
     """
     初始化日志系统
+    
+    Args:
+        name: 日志器名称
+        log_file: 日志文件名
     """
     # 确保日志目录存在
     if os.name == 'posix':  # macOS or Linux
@@ -29,7 +33,7 @@ def init_logger():
             # 如果创建失败，使用当前目录
             log_dir = os.path.dirname(__file__)
     
-    log_file = os.path.join(log_dir, 'app.log')
+    log_file = os.path.join(log_dir, log_file)
     
     # 检查文件大小，如果超过1MB，重命名为带时间戳的文件
     max_size = 1 * 1000 * 1000  # 1MB
@@ -49,7 +53,7 @@ def init_logger():
             except Exception as e:
                 print(f"重命名日志文件失败: {e}")
     
-    logger = logging.getLogger("AppLogger")
+    logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
     
     # 清除现有处理器

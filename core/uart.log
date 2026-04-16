@@ -1,6 +1,0 @@
-2026/04/16 23:23:12 uart_manager.py:191 > 开始扫描串口...
-2026/04/16 23:23:12 uart_manager.py:195 > 发现串口: /dev/cu.BLTH - n/a
-2026/04/16 23:23:12 uart_manager.py:195 > 发现串口: /dev/cu.Bluetooth-Incoming-Port - n/a
-2026/04/16 23:23:12 uart_manager.py:195 > 发现串口: /dev/cu.URT1 - n/a
-2026/04/16 23:23:12 uart_manager.py:195 > 发现串口: /dev/cu.URT2 - n/a
-2026/04/16 23:23:12 uart_manager.py:196 > 扫描完成，找到 4 个串口

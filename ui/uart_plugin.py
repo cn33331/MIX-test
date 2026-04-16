@@ -13,8 +13,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QTextCursor
 from core.uart_manager import UartManager
+from utils.logger import init_logger
 import sys
-import os
 
 class UartPlugin(QWidget):
     """
@@ -22,27 +22,9 @@ class UartPlugin(QWidget):
     """
     def __init__(self, parent=None):
         super().__init__(parent)
-        # 生成日志文件路径
-        if os.name == 'posix':  # macOS or Linux
-            # 使用用户主目录下的日志目录
-            home_dir = os.path.expanduser('~')
-            log_dir = os.path.join(home_dir, '.MIX-Tool', 'logs')
-        elif os.name == 'nt':  # Windows
-            # 使用AppData目录
-            log_dir = os.path.join(os.environ.get('APPDATA', ''), 'MIX-Tool', 'logs')
-        else:
-            # 其他系统使用当前目录
-            log_dir = os.path.join(os.path.dirname(__file__), '..', 'logs')
-        
-        # 确保日志目录存在
-        if not os.path.exists(log_dir):
-            try:
-                os.makedirs(log_dir)
-            except Exception:
-                pass
-        
-        log_file = os.path.join(log_dir, 'uart.log')
-        self.uart_manager = UartManager(callback=self.log_message, log_file=log_file)
+        # 直接使用UartManager的默认日志配置
+        # 它会自动使用utils.logger模块并创建uart.log文件
+        self.uart_manager = UartManager(callback=self.log_message)
         self.init_ui()
     
     def init_ui(self):
