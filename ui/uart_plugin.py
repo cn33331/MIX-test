@@ -10,39 +10,11 @@ from PyQt6.QtWidgets import (
     QPushButton, QTextEdit, QLineEdit, QGroupBox, QFormLayout,
     QSpinBox, QMessageBox
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QTextCursor
-import serial
-import serial.tools.list_ports
+from core.uart_manager import UartManager
 import sys
-
-class SerialReader(QThread):
-    """
-    串口数据读取线程
-    """
-    data_received = pyqtSignal(str)
-    error_occurred = pyqtSignal(str)
-    
-    def __init__(self, ser):
-        super().__init__()
-        self.ser = ser
-        self.running = True
-    
-    def run(self):
-        try:
-            while self.running and self.ser.is_open:
-                data = self.ser.readline()
-                if data:
-                    try:
-                        text = data.decode('utf-8', errors='replace').strip()
-                        self.data_received.emit(text)
-                    except Exception as e:
-                        self.error_occurred.emit(f"解码错误: {str(e)}")
-        except Exception as e:
-            self.error_occurred.emit(f"读取错误: {str(e)}")
-    
-    def stop(self):
-        self.running = False
+import os
 
 class UartPlugin(QWidget):
     """
@@ -50,8 +22,27 @@ class UartPlugin(QWidget):
     """
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.ser = None
-        self.reader_thread = None
+        # 生成日志文件路径
+        if os.name == 'posix':  # macOS or Linux
+            # 使用用户主目录下的日志目录
+            home_dir = os.path.expanduser('~')
+            log_dir = os.path.join(home_dir, '.MIX-Tool', 'logs')
+        elif os.name == 'nt':  # Windows
+            # 使用AppData目录
+            log_dir = os.path.join(os.environ.get('APPDATA', ''), 'MIX-Tool', 'logs')
+        else:
+            # 其他系统使用当前目录
+            log_dir = os.path.join(os.path.dirname(__file__), '..', 'logs')
+        
+        # 确保日志目录存在
+        if not os.path.exists(log_dir):
+            try:
+                os.makedirs(log_dir)
+            except Exception:
+                pass
+        
+        log_file = os.path.join(log_dir, 'uart.log')
+        self.uart_manager = UartManager(callback=self.log_message, log_file=log_file)
         self.init_ui()
     
     def init_ui(self):
@@ -60,49 +51,95 @@ class UartPlugin(QWidget):
         """
         main_layout = QVBoxLayout(self)
         
-        # 串口配置区域
-        config_group = QGroupBox("串口配置")
-        config_layout = QFormLayout()
+        # 配置区域 - 左右布局
+        config_container = QWidget()
+        config_layout = QHBoxLayout(config_container)
+        
+        # 左侧：串口配置
+        left_config_group = QGroupBox("串口配置")
+        left_layout = QVBoxLayout()
         
         # 串口选择
-        self.port_label = QLabel("串口:")
+        port_layout = QVBoxLayout()
+        port_label = QLabel("串口:")
+        port_layout.addWidget(port_label)
+        
+        combo_layout = QHBoxLayout()
         self.port_combo = QComboBox()
         self.port_combo.setMinimumWidth(200)
         self.port_combo.addItem("手动输入串口地址", "")
         self.refresh_button = QPushButton("刷新")
         self.refresh_button.clicked.connect(self.refresh_ports)
+        combo_layout.addWidget(self.port_combo)
+        combo_layout.addWidget(self.refresh_button)
+        port_layout.addLayout(combo_layout)
         
         # 手动输入串口地址
         self.manual_port_input = QLineEdit()
         self.manual_port_input.setPlaceholderText("输入自定义串口地址")
         self.manual_port_input.setEnabled(False)
-        
-        # 监听串口选择变化
-        self.port_combo.currentIndexChanged.connect(self.on_port_selection_changed)
-        
-        port_layout = QVBoxLayout()
-        combo_layout = QHBoxLayout()
-        combo_layout.addWidget(self.port_combo)
-        combo_layout.addWidget(self.refresh_button)
-        port_layout.addLayout(combo_layout)
         port_layout.addWidget(self.manual_port_input)
         
-        config_layout.addRow(self.port_label, port_layout)
-        
         # 波特率
-        self.baud_label = QLabel("波特率:")
-        self.baud_spin = QSpinBox()
-        self.baud_spin.setRange(1200, 115200)
-        self.baud_spin.setValue(115200)
-        config_layout.addRow(self.baud_label, self.baud_spin)
+        baud_layout = QVBoxLayout()
+        baud_label = QLabel("波特率:")
+        baud_layout.addWidget(baud_label)
+        self.baud_combo = QComboBox()
+        self.baud_combo.addItems(["9600", "115200", "57600", "38400", "19200"])
+        self.baud_combo.setCurrentText("115200")
+        baud_layout.addWidget(self.baud_combo)
         
         # 连接按钮
         self.connect_button = QPushButton("连接")
         self.connect_button.clicked.connect(self.toggle_connection)
-        config_layout.addRow(self.connect_button)
         
-        config_group.setLayout(config_layout)
-        main_layout.addWidget(config_group)
+        left_layout.addLayout(port_layout)
+        left_layout.addLayout(baud_layout)
+        left_layout.addWidget(self.connect_button)
+        left_config_group.setLayout(left_layout)
+        
+        # 右侧：串口参数（上下结构）
+        right_params_group = QGroupBox("串口参数")
+        right_layout = QVBoxLayout()
+        
+        # 数据位
+        data_bits_layout = QVBoxLayout()
+        self.data_bits_label = QLabel("数据位:")
+        data_bits_layout.addWidget(self.data_bits_label)
+        self.data_bits_combo = QComboBox()
+        self.data_bits_combo.addItems(["5", "6", "7", "8"])
+        self.data_bits_combo.setCurrentText("8")
+        data_bits_layout.addWidget(self.data_bits_combo)
+        
+        # 校验位
+        parity_layout = QVBoxLayout()
+        self.parity_label = QLabel("校验位:")
+        parity_layout.addWidget(self.parity_label)
+        self.parity_combo = QComboBox()
+        self.parity_combo.addItems(["无", "奇", "偶", "标记", "空格"])
+        self.parity_combo.setCurrentText("无")
+        parity_layout.addWidget(self.parity_combo)
+        
+        # 停止位
+        stop_bits_layout = QVBoxLayout()
+        self.stop_bits_label = QLabel("停止位:")
+        stop_bits_layout.addWidget(self.stop_bits_label)
+        self.stop_bits_combo = QComboBox()
+        self.stop_bits_combo.addItems(["1", "1.5", "2"])
+        self.stop_bits_combo.setCurrentText("1")
+        stop_bits_layout.addWidget(self.stop_bits_combo)
+        
+        right_layout.addLayout(data_bits_layout)
+        right_layout.addLayout(parity_layout)
+        right_layout.addLayout(stop_bits_layout)
+        right_params_group.setLayout(right_layout)
+        
+        # 监听串口选择变化
+        self.port_combo.currentIndexChanged.connect(self.on_port_selection_changed)
+        
+        config_layout.addWidget(left_config_group)
+        config_layout.addWidget(right_params_group)
+        main_layout.addWidget(config_container)
         
         # 数据显示区域
         self.data_display = QTextEdit()
@@ -140,15 +177,13 @@ class UartPlugin(QWidget):
         self.port_combo.clear()
         self.port_combo.addItem("手动输入串口地址", "")
         
-        try:
-            ports = serial.tools.list_ports.comports()
-            for port, desc, hwid in sorted(ports):
+        # 使用UartManager扫描串口
+        ports = self.uart_manager.scan_ports()
+        if ports:
+            for port, desc in ports:
                 self.port_combo.addItem(f"{port} - {desc}", port)
-            
-            if not ports:
-                self.port_combo.addItem("无可用串口", "")
-        except Exception as e:
-            self.log_message(f"扫描串口失败: {str(e)}")
+        else:
+            self.port_combo.addItem("无可用串口", "")
     
     def on_port_selection_changed(self, index):
         """
@@ -167,7 +202,7 @@ class UartPlugin(QWidget):
         """
         切换连接状态
         """
-        if self.ser and self.ser.is_open:
+        if self.uart_manager.is_connected():
             self.disconnect_serial()
         else:
             self.connect_serial()
@@ -189,45 +224,38 @@ class UartPlugin(QWidget):
             QMessageBox.warning(self, "警告", "请选择一个有效的串口")
             return
         
-        baudrate = self.baud_spin.value()
+        # 获取串口参数
+        baudrate = int(self.baud_combo.currentText())
+        data_bits = int(self.data_bits_combo.currentText())
         
-        try:
-            self.ser = serial.Serial(
-                port=port,
-                baudrate=baudrate,
-                bytesize=serial.EIGHTBITS,
-                parity=serial.PARITY_NONE,
-                stopbits=serial.STOPBITS_ONE,
-                timeout=1
-            )
-            
-            if self.ser.is_open:
-                self.log_message(f"✅ 串口连接成功: {port} @ {baudrate}")
-                self.connect_button.setText("断开")
-                
-                # 启动读取线程
-                self.reader_thread = SerialReader(self.ser)
-                self.reader_thread.data_received.connect(self.log_message)
-                self.reader_thread.error_occurred.connect(self.log_message)
-                self.reader_thread.start()
-        except Exception as e:
-            self.log_message(f"❌ 连接失败: {str(e)}")
+        # 映射校验位
+        parity_map = {
+            "无": 'N',
+            "奇": 'O',
+            "偶": 'E',
+            "标记": 'M',
+            "空格": 'S'
+        }
+        parity = parity_map[self.parity_combo.currentText()]
+        
+        # 映射停止位
+        stop_bits_map = {
+            "1": 1,
+            "1.5": 1.5,
+            "2": 2
+        }
+        stop_bits = stop_bits_map[self.stop_bits_combo.currentText()]
+        
+        # 使用UartManager连接串口
+        if self.uart_manager.connect(port, baudrate, data_bits, parity, stop_bits):
+            self.connect_button.setText("断开")
     
     def disconnect_serial(self):
         """
         断开串口连接
         """
-        if self.reader_thread:
-            self.reader_thread.stop()
-            self.reader_thread.wait()
-            self.reader_thread = None
-        
-        if self.ser and self.ser.is_open:
-            self.ser.close()
-        
-        self.ser = None
+        self.uart_manager.disconnect()
         self.connect_button.setText("连接")
-        self.log_message("✅ 串口已断开")
     
     def send_data(self):
         """
@@ -237,16 +265,12 @@ class UartPlugin(QWidget):
         if not data:
             return
         
-        if not self.ser or not self.ser.is_open:
+        if not self.uart_manager.is_connected():
             QMessageBox.warning(self, "警告", "请先连接串口")
             return
         
-        try:
-            self.ser.write((data + '\n').encode('utf-8'))
-            self.log_message(f">> {data}")
+        if self.uart_manager.send(data):
             self.send_input.clear()
-        except Exception as e:
-            self.log_message(f"发送失败: {str(e)}")
     
     def log_message(self, message):
         """
