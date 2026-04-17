@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 """
 测试RPC客户端
-直接使用zmq.DEALER而不是ProxyFactory.JsonZmqFactory
+使用ProxyFactory.JsonZmqFactory
 """
 import sys
 import time
-import json
-import zmq
 import os
 import platform
 import logging
 from logging.handlers import RotatingFileHandler
+
+# 添加rpc_8目录到Python路径
+sys.path.append(os.path.join(os.path.dirname(__file__), 'rpc_8'))
+
+# 导入ProxyFactory
+from mix.rpc.proxy.proxyfactory import ProxyFactory
 
 # 初始化日志
 def init_logger(file_path):
@@ -29,10 +33,8 @@ class RpcClient:
         self.xavier_ip = xavier_ip
         self.xavier_port = xavier_port
         self.system = platform.system()
-        self.context = None
-        self.socket = None
+        self.client = None
         self.connected = False
-        self.identity = os.urandom(16)
         self.logger = init_logger(os.path.expanduser("~/rpcClient.log"))
         self.all_method_doc = {}
         
@@ -68,10 +70,9 @@ class RpcClient:
                 self.connected = False
                 return False
             
-            # 初始化ZeroMQ连接
-            self.context = zmq.Context()
-            self.socket = self.context.socket(zmq.DEALER)
-            self.socket.connect(f"tcp://{self.xavier_ip}:{self.xavier_port}")
+            # 使用ProxyFactory.JsonZmqFactory连接
+            server_url = f"tcp://{self.xavier_ip}:{self.xavier_port}"
+            self.client = ProxyFactory.JsonZmqFactory(server_url)
             
             # 检查连接
             self._check_version()
@@ -87,54 +88,21 @@ class RpcClient:
         """
         检查服务器版本
         """
-        request = {
-            "version": "MIX_2.0",
-            "id": int(time.time() * 1000000),
-            "remote_id": "__server__",
-            "method": "version"
-        }
-        response = self._send_request(request)
-        if "result" in response:
-            self.server_version = response["result"]
-            print(f"服务器版本: {self.server_version}")
-        else:
-            print(f"获取服务器版本失败: {response.get('error', 'Unknown error')}")
-    
-    def _send_request(self, request):
-        """
-        发送请求并获取响应
-        """
         try:
-            # 发送消息格式: [target, message]
-            target = b""
-            message = json.dumps(request).encode('utf8')
-            self.socket.send_multipart([target, message])
-            
-            # 接收响应
-            response_parts = self.socket.recv_multipart()
-            if len(response_parts) >= 1:
-                response_str = response_parts[0].decode('utf8')
-                return json.loads(response_str)
-            else:
-                return {"error": "Invalid response format"}
+            self.server_version = self.client.get_server_version()
+            print(f"服务器版本: {self.server_version}")
         except Exception as e:
-            return {"error": str(e)}
+            print(f"获取服务器版本失败: {e}")
     
     def list_remote_services(self):
         """
         获取所有可调用方法
         """
-        request = {
-            "version": "MIX_2.0",
-            "id": int(time.time() * 1000000),
-            "remote_id": "__server__",
-            "method": "get_all_services"
-        }
-        response = self._send_request(request)
-        if "result" in response:
-            return response["result"]
-        else:
-            print(f"获取服务列表失败: {response.get('error', 'Unknown error')}")
+        try:
+            services = self.client.list_remote_services()
+            return services
+        except Exception as e:
+            print(f"获取服务列表失败: {e}")
             return []
     
     def _list_remote_services(self):
@@ -151,18 +119,12 @@ class RpcClient:
         """
         获取服务信息
         """
-        request = {
-            "version": "MIX_2.0",
-            "id": int(time.time() * 1000000),
-            "remote_id": "__server__",
-            "method": "get_service_info",
-            "args": [service_name]
-        }
-        response = self._send_request(request)
-        if "result" in response:
-            return response["result"]
-        else:
-            print(f"获取服务信息失败: {response.get('error', 'Unknown error')}")
+        try:
+            # 使用stub方法调用get_service_info
+            service_info = self.client.stub('__server__', 'get_service_info', service_name)
+            return service_info
+        except Exception as e:
+            print(f"获取服务信息失败: {e}")
             return {"methods": {}}
     
     def methods_info(self, obj_id):
@@ -198,36 +160,21 @@ class RpcClient:
         """
         调用远程方法
         """
-        request = {
-            "version": "MIX_2.0",
-            "id": int(time.time() * 1000000),
-            "remote_id": service,
-            "method": method,
-            "args": args,
-            "kwargs": kwargs
-        }
-        response = self._send_request(request)
-        if "result" in response:
-            return response["result"]
-        else:
-            raise Exception(response.get('error', 'Unknown error'))
+        try:
+            return self.client.stub(service, method, *args, **kwargs)
+        except Exception as e:
+            raise Exception(f"调用远程方法失败: {e}")
     
     def close(self):
         """
         关闭连接
         """
-        # 发送bye消息
-        request = {
-            "version": "MIX_2.0",
-            "id": int(time.time() * 1000000),
-            "remote_id": "__MIX_CLIENT_MANAGER__",
-            "method": "bye"
-        }
-        self._send_request(request)
-        
-        # 关闭套接字和上下文
-        self.socket.close()
-        self.context.term()
+        try:
+            if self.client:
+                self.client.shut_down()
+                self.logger.info("连接已关闭")
+        except Exception as e:
+            self.logger.error(f"关闭连接失败: {e}")
 
 if __name__ == '__main__':
     # 创建客户端实例
