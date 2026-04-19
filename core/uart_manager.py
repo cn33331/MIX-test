@@ -15,11 +15,12 @@ class SerialReader(threading.Thread):
     """
     串口数据读取线程
     """
-    def __init__(self, ser, callback=None, logger=None):
+    def __init__(self, ser, callback=None, logger=None, error_callback=None):
         super().__init__()
         self.ser = ser
         self.callback = callback or (lambda msg: print(msg))
         self.logger = logger or (lambda msg: print(msg))
+        self.error_callback = error_callback
         self.running = True
     
     def run(self):
@@ -42,6 +43,9 @@ class SerialReader(threading.Thread):
             self.callback(error_msg)
             if hasattr(self.logger, 'error'):
                 self.logger.error(error_msg)
+            # 调用错误回调，触发重连
+            if self.error_callback:
+                self.error_callback()
     
     def stop(self):
         self.running = False
@@ -63,6 +67,11 @@ class UartManager:
         self.callback = callback or (lambda msg: print(msg))
         self.log_file = log_file
         self.logger = self._init_logger()
+        self.auto_reconnect = False
+        self.reconnect_interval = 3  # 默认重连间隔3秒
+        self.reconnect_thread = None
+        self.reconnect_running = False
+        self.connection_params = None  # 保存连接参数
     
     def _init_logger(self):
         """
@@ -98,7 +107,7 @@ class UartManager:
             self.logger.error(error_msg)
         return ports
     
-    def connect(self, port, baudrate=115200, data_bits=8, parity='N', stop_bits=1):
+    def connect(self, port, baudrate=115200, data_bits=8, parity='N', stop_bits=1, auto_reconnect=False):
         """
         连接串口
         
@@ -108,12 +117,23 @@ class UartManager:
             data_bits: 数据位 (5-8)
             parity: 校验位 ('N', 'O', 'E', 'M', 'S')
             stop_bits: 停止位 (1, 1.5, 2)
+            auto_reconnect: 是否启用自动重连
         
         Returns:
             bool: 连接是否成功
         """
         try:
             self.logger.info(f"尝试连接串口: {port} @ {baudrate}, {data_bits}{parity}{stop_bits}")
+            
+            # 保存连接参数
+            self.connection_params = {
+                'port': port,
+                'baudrate': baudrate,
+                'data_bits': data_bits,
+                'parity': parity,
+                'stop_bits': stop_bits
+            }
+            self.auto_reconnect = auto_reconnect
             
             # 映射数据位
             data_bits_map = {
@@ -158,27 +178,99 @@ class UartManager:
                 self.logger.info(success_msg)
                 
                 # 启动读取线程
-                self.reader_thread = SerialReader(self.ser, self.callback, self.logger)
+                self.reader_thread = SerialReader(self.ser, self.callback, self.logger, self._handle_connection_error)
                 self.reader_thread.daemon = True
                 self.reader_thread.start()
                 self.logger.info("串口读取线程已启动")
+                
+                # 如果启用了自动重连，启动重连线程
+                if self.auto_reconnect:
+                    self._start_reconnect_thread()
+                
                 return True
             else:
                 error_msg = "❌ 串口连接失败: 无法打开串口"
                 self.callback(error_msg)
                 self.logger.error(error_msg)
+                
+                # 如果启用了自动重连，启动重连线程
+                if self.auto_reconnect:
+                    self._start_reconnect_thread()
+                
                 return False
         except Exception as e:
             error_msg = f"❌ 连接失败: {str(e)}"
             self.callback(error_msg)
             self.logger.error(error_msg)
+            
+            # 如果启用了自动重连，启动重连线程
+            if self.auto_reconnect:
+                self._start_reconnect_thread()
+            
             return False
+    
+    def _handle_connection_error(self):
+        """
+        处理连接错误，触发重连
+        """
+        self.logger.warning("检测到连接错误，准备重连...")
+        self.disconnect()
+        
+        # 如果启用了自动重连，启动重连线程
+        if self.auto_reconnect:
+            self._start_reconnect_thread()
+    
+    def _start_reconnect_thread(self):
+        """
+        启动重连线程
+        """
+        if not self.reconnect_running and self.connection_params:
+            self.reconnect_running = True
+            self.reconnect_thread = threading.Thread(target=self._reconnect_loop, daemon=True)
+            self.reconnect_thread.start()
+            self.logger.info("自动重连线程已启动")
+    
+    def _reconnect_loop(self):
+        """
+        重连循环
+        """
+        while self.reconnect_running and self.auto_reconnect and self.connection_params:
+            try:
+                self.logger.info(f"尝试重连串口，间隔 {self.reconnect_interval} 秒...")
+                time.sleep(self.reconnect_interval)
+                
+                # 检查串口是否存在
+                ports = [port for port, _ in self.scan_ports()]
+                if self.connection_params['port'] in ports:
+                    # 尝试重新连接
+                    success = self.connect(
+                        port=self.connection_params['port'],
+                        baudrate=self.connection_params['baudrate'],
+                        data_bits=self.connection_params['data_bits'],
+                        parity=self.connection_params['parity'],
+                        stop_bits=self.connection_params['stop_bits'],
+                        auto_reconnect=self.auto_reconnect
+                    )
+                    if success:
+                        self.logger.info("自动重连成功")
+                        self.reconnect_running = False
+                        break
+            except Exception as e:
+                self.logger.error(f"重连失败: {str(e)}")
+                time.sleep(self.reconnect_interval)
     
     def disconnect(self):
         """
         断开串口连接
         """
         self.logger.info("开始断开串口连接...")
+        
+        # 停止重连线程
+        self.reconnect_running = False
+        if self.reconnect_thread:
+            self.reconnect_thread.join(timeout=1.0)
+            self.reconnect_thread = None
+            self.logger.info("自动重连线程已停止")
         
         if self.reader_thread:
             self.reader_thread.stop()
@@ -236,6 +328,9 @@ class UartManager:
             error_msg = f"写入失败: {str(e)}"
             self.callback(error_msg)
             self.logger.error(error_msg)
+            
+            # 处理连接错误
+            self._handle_connection_error()
             return False
     
     def read(self, size=1, timeout=None):
@@ -277,6 +372,9 @@ class UartManager:
             error_msg = f"读取失败: {str(e)}"
             self.callback(error_msg)
             self.logger.error(error_msg)
+            
+            # 处理连接错误
+            self._handle_connection_error()
             return b''
     
     def readline(self, timeout=None):
@@ -319,6 +417,9 @@ class UartManager:
             error_msg = f"读取失败: {str(e)}"
             self.callback(error_msg)
             self.logger.error(error_msg)
+            
+            # 处理连接错误
+            self._handle_connection_error()
             return ""
     
     def send(self, data, timeout=1.0, expect_response=False):
@@ -360,4 +461,7 @@ class UartManager:
             error_msg = f"发送失败: {str(e)}"
             self.callback(error_msg)
             self.logger.error(error_msg)
+            
+            # 处理连接错误
+            self._handle_connection_error()
             return False, ""

@@ -6,6 +6,7 @@
 """
 
 from PyQt6.QtWidgets import QMainWindow, QTabWidget, QApplication, QVBoxLayout, QWidget
+from PyQt6.QtCore import Qt
 from ui.main_window import MainWindow
 from ui.uart_plugin import UartPlugin
 import sys
@@ -17,8 +18,8 @@ class MainApplication(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("自动化任务管理平台")
-        self.setGeometry(100, 100, 1200, 800)
-        self.setMinimumSize(1000, 600)
+        self.setGeometry(100, 100, 780, 600)
+        self.setMinimumSize(780, 600)
         
         # 创建中央部件
         central_widget = QWidget()
@@ -37,19 +38,15 @@ class MainApplication(QMainWindow):
         """
         添加MIX-debug插件
         """
-        # 创建MIX-debug插件容器
-        mix_plugin_widget = QWidget()
-        mix_layout = QVBoxLayout(mix_plugin_widget)
-        
         # 创建MainWindow实例
         mix_window = MainWindow()
         
-        # 将MainWindow的中央部件添加到插件中
-        if mix_window.centralWidget():
-            mix_layout.addWidget(mix_window.centralWidget())
+        # 由于MainWindow继承自QMainWindow，有自己的centralWidget
+        # 直接将其作为标签页添加，但隐藏其窗口标题
+        mix_window.setWindowFlags(Qt.WindowType.Widget)
         
         # 添加到标签页
-        self.tab_widget.addTab(mix_plugin_widget, "MIX-debug")
+        self.tab_widget.addTab(mix_window, "MIX-debug")
     
     def add_uart_plugin(self):
         """

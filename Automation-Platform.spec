@@ -7,7 +7,8 @@ a = Analysis(
     binaries=[],
     datas=[
         ('/Users/gdlocal/Desktop/myCode/myAPP/MIX-test/mix', 'mix'),
-        ('/Users/gdlocal/Desktop/myCode/myAPP/MIX-test/uart', 'uart')
+        ('/Users/gdlocal/Desktop/myCode/myAPP/MIX-test/uart', 'uart'),
+        ('/Users/gdlocal/Desktop/myCode/myAPP/MIX-test/ui', 'ui')
     ],
     hiddenimports=['__future__', 'zmq', 'ujson', 'ipaddress', 'uuid', 'serial'],
     hookspath=[],

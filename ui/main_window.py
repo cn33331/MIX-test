@@ -5,240 +5,87 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                             QDialog, QSpinBox, QGridLayout, QScrollArea, QComboBox,
                             QCompleter, QListWidget, QListWidgetItem, QMenu, QSplitter, QHeaderView, QSizePolicy)
 from PyQt6.QtCore import Qt, QStringListModel
+from PyQt6.uic import loadUi
 from utils.config import config_manager
 import json
 import os
 import csv
 import glob
 
+def get_resource_path(relative_path):
+    """
+    获取资源文件的绝对路径，支持打包后的应用
+    """
+    if hasattr(sys, '_MEIPASS'):
+        # PyInstaller 打包后的路径
+        base_path = sys._MEIPASS
+    else:
+        # 开发环境路径
+        base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_path, relative_path)
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.version = 'v1.6'
+        # 从ui文件加载UI
+        ui_path = get_resource_path('ui/main_window.ui')
+        loadUi(ui_path, self)
         self.setWindowTitle(f'MIX-debug {self.version} by:zjx')
-        # 设置最小窗口大小，适应低分辨率设备
-        self.setMinimumSize(780, 550)
-        # 初始窗口大小，适应高分辨率设备
-        self.setGeometry(100, 100, 1000, 600)
         self.rpc_clients = {}  # 保存已连接的RPC客户端
         self.last_sequence_file = None  # 保存最后加载的序列文件路径
-        self.init_ui()
+        self.init_signals()
         self.load_channels_from_config()
         self.load_history_from_config()
         # 连接窗口大小变化信号
         self.resizeEvent = self.on_resize
     
-    def init_ui(self):
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
+    def init_signals(self):
+        """
+        初始化信号连接
+        """
+        # 命令输入信号
+        self.cmdInput.returnPressed.connect(self.copy_command_to_param)
         
-        # 使用QSplitter创建可调整大小的布局
-        main_splitter = QSplitter(Qt.Orientation.Horizontal, central_widget)
-        main_splitter.setContentsMargins(10, 10, 10, 10)
+        # 发送指令按钮
+        self.sendCmdButton.clicked.connect(self.send_command)
         
-        # 左侧区域
-        left_widget = QWidget()
-        left_layout = QVBoxLayout(left_widget)
-        left_layout.setSpacing(5)
+        # 历史记录信号
+        self.historyList.itemDoubleClicked.connect(self.select_history_command)
+        self.historyList.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.historyList.customContextMenuRequested.connect(self.show_history_context_menu)
         
-        # 日志显示区域（左侧上方）
-        log_group = QGroupBox('日志显示')
-        log_layout = QVBoxLayout()
-        log_layout.setContentsMargins(10, 10, 10, 10)
+        # 序列列表信号
+        self.sequenceList.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.sequenceList.customContextMenuRequested.connect(self.show_sequence_context_menu)
         
-        self.log_text = QTextEdit()
-        self.log_text.setReadOnly(True)
-        self.log_text.setMinimumHeight(200)  # 增加最小高度，显示更多日志
-        # 为日志显示添加右键菜单
-        self.log_text.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.log_text.customContextMenuRequested.connect(self.show_log_context_menu)
-        log_layout.addWidget(self.log_text)
+        # 执行序列按钮
+        self.executeSequenceButton.clicked.connect(self.execute_sequence)
         
-        log_group.setLayout(log_layout)
-        left_layout.addWidget(log_group,10)
+        # 日志显示信号
+        self.logText.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.logText.customContextMenuRequested.connect(self.show_log_context_menu)
         
-        # 命令选择区域（左侧下方）
-        cmd_select_group = QGroupBox('命令选择')
-        cmd_select_layout = QVBoxLayout()
-        cmd_select_layout.setContentsMargins(10, 10, 10, 10)
-        cmd_select_layout.setSpacing(10)
-        
-        # 指令输入
-        input_layout = QHBoxLayout()
-        self.cmd_input = QLineEdit()
-        self.cmd_input.setPlaceholderText('输入命令或从下方选择')
-        self.cmd_input.setMinimumHeight(30)
-        self.cmd_input.returnPressed.connect(self.copy_command_to_param)
-        input_layout.addWidget(QLabel('命令:'))
-        input_layout.addWidget(self.cmd_input, 1)
+        # 通道列表信号
+        self.ipTable.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.ipTable.customContextMenuRequested.connect(self.show_channel_context_menu)
+        self.ipTable.cellChanged.connect(self.on_cell_changed)
         
         # 初始化命令自动完成
         self.cmd_model = QStringListModel()
         completer = QCompleter(self.cmd_model, self)
         completer.activated.connect(self.select_command)
-        self.cmd_input.setCompleter(completer)
+        self.cmdInput.setCompleter(completer)
         
-        cmd_select_layout.addLayout(input_layout)
+        # 设置表格列宽
+        self.ipTable.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.ipTable.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.ipTable.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.ipTable.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.ipTable.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         
-        cmd_select_group.setLayout(cmd_select_layout)
-        left_layout.addWidget(cmd_select_group,1)
-        
-        # 命令信息显示区域
-        cmd_info_group = QGroupBox('命令信息')
-        cmd_info_layout = QVBoxLayout()
-        cmd_info_layout.setContentsMargins(10, 10, 10, 10) 
-        
-        self.cmd_info_text = QTextEdit()
-        self.cmd_info_text.setReadOnly(True)
-        self.cmd_info_text.setMinimumHeight(30)  # 进一步减小最小高度
-        # self.cmd_info_text.setMaximumHeight(100)  # 设置最大高度
-        self.cmd_info_text.setPlainText('请选择一个命令以查看详细信息')
-        
-        cmd_info_layout.addWidget(self.cmd_info_text)
-        cmd_info_group.setLayout(cmd_info_layout)
-        left_layout.addWidget(cmd_info_group,4)
-        
-        # 参数输入区域
-        param_group = QGroupBox('参数输入')
-        param_layout = QHBoxLayout()
-        param_layout.setContentsMargins(10, 10, 10, 10)
-        param_layout.setSpacing(10)
-        
-        self.param_input = QLineEdit()
-        self.param_input.setPlaceholderText('输入指令参数')
-        self.param_input.setMinimumHeight(30)
-        param_layout.addWidget(QLabel('参数:'))
-        param_layout.addWidget(self.param_input, 1)
-        
-        param_group.setLayout(param_layout)
-        left_layout.addWidget(param_group,1)
-        
-        # 指令发送区域
-        cmd_group = QGroupBox('指令发送')
-        cmd_layout = QHBoxLayout()
-        cmd_layout.setContentsMargins(10, 10, 10, 10)
-        
-        self.send_cmd_button = QPushButton('发送指令')
-        self.send_cmd_button.setMinimumHeight(30)
-        self.send_cmd_button.clicked.connect(self.send_command)
-        cmd_layout.addWidget(self.send_cmd_button)
-        
-        cmd_group.setLayout(cmd_layout)
-        left_layout.addWidget(cmd_group,1)
-        
-        main_splitter.addWidget(left_widget)
-        
-        # 右侧区域
-        right_widget = QWidget()
-        right_layout = QVBoxLayout(right_widget)
-        right_layout.setSpacing(10)
-        
-        # 历史指令区域（右侧上方）
-        history_group = QGroupBox('历史指令')
-        history_layout = QVBoxLayout()
-        history_layout.setContentsMargins(10, 10, 10, 10)
-        
-        self.history_list = QListWidget()
-        self.history_list.setMinimumHeight(100)  # 减少最小高度
-        self.history_list.itemDoubleClicked.connect(self.select_history_command)
-        self.history_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.history_list.customContextMenuRequested.connect(self.show_history_context_menu)
-        history_layout.addWidget(self.history_list)
-        
-        history_group.setLayout(history_layout)
-        right_layout.addWidget(history_group)
-        
-        # 指令序列区域（右侧下方）
-        self.sequence_group = QGroupBox('指令序列')
-        sequence_layout = QVBoxLayout()
-        sequence_layout.setContentsMargins(10, 10, 10, 10)
-        sequence_layout.setSpacing(10)
-        
-        # 序列列表
-        self.sequence_list = QListWidget()
-        self.sequence_list.setMinimumHeight(100)  # 减少最小高度
-        self.sequence_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.sequence_list.customContextMenuRequested.connect(self.show_sequence_context_menu)
-        sequence_layout.addWidget(self.sequence_list)
-        
-        # 序列操作按钮 - 只保留执行序列按钮
-        sequence_buttons_widget = QWidget()
-        sequence_buttons_layout = QHBoxLayout(sequence_buttons_widget)
-        sequence_buttons_layout.setSpacing(10)
-        
-        execute_sequence_btn = QPushButton('执行序列')
-        execute_sequence_btn.setMinimumHeight(30)
-        execute_sequence_btn.clicked.connect(self.execute_sequence)
-        sequence_buttons_layout.addWidget(execute_sequence_btn)
-        
-        sequence_layout.addWidget(sequence_buttons_widget)
-        self.sequence_group.setLayout(sequence_layout)
-        right_layout.addWidget(self.sequence_group)
-        
-        # 通道IP显示区域（右侧下方）
-        ip_group = QGroupBox('通道IP配置')
-        ip_layout = QVBoxLayout()
-        ip_layout.setContentsMargins(10, 10, 10, 10)
-        ip_layout.setSpacing(10)
-        
-        # 通道列表滚动区域
-        scroll_area = QScrollArea()
-        scroll_area.setMinimumHeight(200)  # 减少最小高度
-        scroll_widget = QWidget()
-        scroll_layout = QVBoxLayout(scroll_widget)
-        scroll_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # 通道列表
-        self.ip_table = QTableWidget(1, 5)
-        self.ip_table.setHorizontalHeaderLabels(['通道', 'IP地址', '端口', '状态', '操作'])
-        self.ip_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.ip_table.setSelectionMode(QTableWidget.SelectionMode.MultiSelection)
-        self.ip_table.setMinimumWidth(10)  # 设置最小宽度
-        # 设置表格为可编辑模式
-        self.ip_table.setEditTriggers(QTableWidget.EditTrigger.DoubleClicked)
-        # 连接单元格修改完成信号
-        self.ip_table.cellChanged.connect(self.on_cell_changed)
-
-        # 设置大小策略，让表格能够铺满
-        self.ip_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-
-        # 设置列宽，使用比例而不是固定值
-        # 第1列（索引0）：根据内容自动调整宽度
-        self.ip_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-
-        # 第2列（索引1）：拉伸填充剩余空间
-        self.ip_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-
-        # 第3-5列（索引2-4）：根据内容自动调整宽度
-        self.ip_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self.ip_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        self.ip_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        # self.ip_table.setColumnWidth(4, 20)
-        
-        # 为通道列表添加右键菜单
-        self.ip_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.ip_table.customContextMenuRequested.connect(self.show_channel_context_menu)
-
-        # 确保滚动区域可调整大小
-        scroll_area.setWidgetResizable(True)
-        
-        # 初始化默认通道 - 移除，因为load_channels_from_config会负责加载所有通道
-        
-        scroll_layout.addWidget(self.ip_table)
-        scroll_area.setWidget(scroll_widget)
-        ip_layout.addWidget(scroll_area)
-        
-        ip_group.setLayout(ip_layout)
-        right_layout.addWidget(ip_group)
-        
-        main_splitter.addWidget(right_widget)
-        
-        # # 设置默认分割比例
-        # main_splitter.setSizes([400, 300])  # 调整比例，增加右侧宽度
-        
-        # 设置主布局
-        main_layout = QVBoxLayout(central_widget)
-        main_layout.addWidget(main_splitter)
+        # 设置表格大小策略
+        self.ipTable.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
     
     def on_resize(self, event):
         """
@@ -253,16 +100,16 @@ class MainWindow(QMainWindow):
         left_width = max(450, width - right_width)  # 左侧宽度为窗口宽度减去右侧宽度，最小400像素
         
         # 设置分割器大小
-        if hasattr(self, 'centralWidget') and self.centralWidget():
-            for child in self.centralWidget().children():
+        if hasattr(self, 'centralWidget') and self.centralWidget:
+            for child in self.centralWidget.children():
                 if isinstance(child, QSplitter):
-                    child.setSizes([left_width, right_width])
+                    child.setSizes([int(left_width), int(right_width)])
     
     def send_command(self):
         """
         发送指令到所有已连接通道
         """
-        command_with_params = self.param_input.text()
+        command_with_params = self.paramInput.text()
         
         if not command_with_params:
             self.log_message('请输入命令和参数')
@@ -307,10 +154,10 @@ class MainWindow(QMainWindow):
         """
         # 遍历所有通道，发送指令到已连接的通道
         connected_channels = []
-        for row in range(self.ip_table.rowCount()):
-            status = self.ip_table.item(row, 3).text()
+        for row in range(self.ipTable.rowCount()):
+            status = self.ipTable.item(row, 3).text()
             if status == '已连接':
-                channel_name = self.ip_table.item(row, 0).text()
+                channel_name = self.ipTable.item(row, 0).text()
                 
                 # 使用已保存的RPC客户端
                 if row in self.rpc_clients:
@@ -333,7 +180,7 @@ class MainWindow(QMainWindow):
             self.log_message('没有已连接的通道')
     
     def log_message(self, message):
-        self.log_text.append(message)
+        self.logText.append(message)
         # 同时使用logger记录到文件
         from utils.logger import logger
         logger.info(message)
@@ -352,7 +199,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel('通道数量:'), 0, 0)
         count_spin = QSpinBox()
         count_spin.setRange(1, 24)
-        count_spin.setValue(self.ip_table.rowCount())
+        count_spin.setValue(self.ipTable.rowCount())
         layout.addWidget(count_spin, 0, 1)
         
         # 起始IP
@@ -407,13 +254,13 @@ class MainWindow(QMainWindow):
             start_num = int(start_ip.split('.')[-1])
             
             # 清除现有通道
-            while self.ip_table.rowCount() > 0:
-                self.ip_table.removeRow(0)
+            while self.ipTable.rowCount() > 0:
+                self.ipTable.removeRow(0)
             
             # 添加新通道
             for i in range(count):
                 slot_number = i + 1
-                self.ip_table.insertRow(i)
+                self.ipTable.insertRow(i)
                 
                 # 使用IP递增逻辑生成IP地址
                 ip_address = get_ip(slot_number, start_num, 1, "mix8")
@@ -425,15 +272,15 @@ class MainWindow(QMainWindow):
                     port = start_port + (slot_number - 1) * port_step_value
                 
                 # 设置通道信息
-                self.ip_table.setItem(i, 0, QTableWidgetItem(f'Slot{slot_number}'))
-                self.ip_table.setItem(i, 1, QTableWidgetItem(ip_address))
-                self.ip_table.setItem(i, 2, QTableWidgetItem(str(port)))
-                self.ip_table.setItem(i, 3, QTableWidgetItem('未连接'))
+                self.ipTable.setItem(i, 0, QTableWidgetItem(f'Slot{slot_number}'))
+                self.ipTable.setItem(i, 1, QTableWidgetItem(ip_address))
+                self.ipTable.setItem(i, 2, QTableWidgetItem(str(port)))
+                self.ipTable.setItem(i, 3, QTableWidgetItem('未连接'))
                 
                 # 添加连接按钮
                 connect_btn = QPushButton('连接')
                 connect_btn.clicked.connect(lambda _, r=i: self.connect_channel(r))
-                self.ip_table.setCellWidget(i, 4, connect_btn)
+                self.ipTable.setCellWidget(i, 4, connect_btn)
             
             self.log_message(f'配置了 {count} 个通道')
             # 保存通道配置到配置文件
@@ -496,11 +343,11 @@ class MainWindow(QMainWindow):
         """
         连接通道
         """
-        channel_name = self.ip_table.item(row, 0).text()
-        ip = self.ip_table.item(row, 1).text()
-        port = self.ip_table.item(row, 2).text()
+        channel_name = self.ipTable.item(row, 0).text()
+        ip = self.ipTable.item(row, 1).text()
+        port = self.ipTable.item(row, 2).text()
         
-        connect_btn = self.ip_table.cellWidget(row, 4)
+        connect_btn = self.ipTable.cellWidget(row, 4)
         
         if connect_btn.text() == '连接':
             self.log_message(f'正在连接通道: {channel_name} ({ip}:{port})')
@@ -515,7 +362,7 @@ class MainWindow(QMainWindow):
                 # 保存RPC客户端到字典
                 self.rpc_clients[row] = client
                 # 更新状态和按钮
-                self.ip_table.setItem(row, 3, QTableWidgetItem('已连接'))
+                self.ipTable.setItem(row, 3, QTableWidgetItem('已连接'))
                 connect_btn.setText('断开')
                 
                 # 获取所有命令信息并保存
@@ -536,7 +383,7 @@ class MainWindow(QMainWindow):
             self.log_message(f'通道 {channel_name} 断开成功！')
             
             # 更新状态和按钮
-            self.ip_table.setItem(row, 3, QTableWidgetItem('未连接'))
+            self.ipTable.setItem(row, 3, QTableWidgetItem('未连接'))
             connect_btn.setText('连接')
     
 
@@ -547,7 +394,7 @@ class MainWindow(QMainWindow):
         """
         # 获取选中的行
         selected_rows = set()
-        for item in self.ip_table.selectedItems():
+        for item in self.ipTable.selectedItems():
             selected_rows.add(item.row())
         
         if not selected_rows:
@@ -556,7 +403,7 @@ class MainWindow(QMainWindow):
         
         # 连接选中的通道
         for row in selected_rows:
-            connect_btn = self.ip_table.cellWidget(row, 4)
+            connect_btn = self.ipTable.cellWidget(row, 4)
             if connect_btn.text() == '连接':
                 self.connect_channel(row)
     
@@ -566,7 +413,7 @@ class MainWindow(QMainWindow):
         """
         # 获取选中的行
         selected_rows = set()
-        for item in self.ip_table.selectedItems():
+        for item in self.ipTable.selectedItems():
             selected_rows.add(item.row())
         
         if not selected_rows:
@@ -575,7 +422,7 @@ class MainWindow(QMainWindow):
         
         # 断开选中的通道
         for row in selected_rows:
-            connect_btn = self.ip_table.cellWidget(row, 4)
+            connect_btn = self.ipTable.cellWidget(row, 4)
             if connect_btn.text() == '断开':
                 self.connect_channel(row)
     
@@ -584,42 +431,42 @@ class MainWindow(QMainWindow):
         从配置文件加载通道配置
         """
         # 暂时断开cellChanged信号连接，避免加载时触发保存
-        self.ip_table.cellChanged.disconnect(self.on_cell_changed)
+        self.ipTable.cellChanged.disconnect(self.on_cell_changed)
         
         # 清除现有通道
-        while self.ip_table.rowCount() > 0:
-            self.ip_table.removeRow(0)
+        while self.ipTable.rowCount() > 0:
+            self.ipTable.removeRow(0)
         
         # 从配置文件加载通道
         channels = config_manager.get_channels()
         for i, channel in enumerate(channels):
-            self.ip_table.insertRow(i)
-            self.ip_table.setItem(i, 0, QTableWidgetItem(channel['name']))
-            self.ip_table.setItem(i, 1, QTableWidgetItem(channel['ip']))
-            self.ip_table.setItem(i, 2, QTableWidgetItem(channel['port']))
-            self.ip_table.setItem(i, 3, QTableWidgetItem('未连接'))
+            self.ipTable.insertRow(i)
+            self.ipTable.setItem(i, 0, QTableWidgetItem(channel['name']))
+            self.ipTable.setItem(i, 1, QTableWidgetItem(channel['ip']))
+            self.ipTable.setItem(i, 2, QTableWidgetItem(channel['port']))
+            self.ipTable.setItem(i, 3, QTableWidgetItem('未连接'))
             
             # 添加连接按钮
             connect_btn = QPushButton('连接')
             connect_btn.setMinimumWidth(40)
             connect_btn.clicked.connect(lambda _, r=i: self.connect_channel(r))
-            self.ip_table.setCellWidget(i, 4, connect_btn)
+            self.ipTable.setCellWidget(i, 4, connect_btn)
         
         self.log_message(f'从配置文件加载了 {len(channels)} 个通道')
         
         # 重新连接cellChanged信号
-        self.ip_table.cellChanged.connect(self.on_cell_changed)
+        self.ipTable.cellChanged.connect(self.on_cell_changed)
     
     def save_channels_to_config(self):
         """
         保存通道配置到配置文件
         """
         channels = []
-        for i in range(self.ip_table.rowCount()):
+        for i in range(self.ipTable.rowCount()):
             # 安全获取单元格值，处理NoneType情况
-            name_item = self.ip_table.item(i, 0)
-            ip_item = self.ip_table.item(i, 1)
-            port_item = self.ip_table.item(i, 2)
+            name_item = self.ipTable.item(i, 0)
+            ip_item = self.ipTable.item(i, 1)
+            port_item = self.ipTable.item(i, 2)
             
             name = name_item.text() if name_item else f'Slot{i+1}'
             ip = ip_item.text() if ip_item else ''
@@ -649,9 +496,9 @@ class MainWindow(QMainWindow):
         if hasattr(command, 'text'):
             command = command.text()
         
-        self.cmd_input.setText(command)
-        # 自动复制到param_input
-        self.param_input.setText(command)
+        self.cmdInput.setText(command)
+        # 自动复制到paramInput
+        self.paramInput.setText(command)
         # 显示命令详细说明
         self.show_command_doc(command)
     
@@ -680,19 +527,19 @@ class MainWindow(QMainWindow):
                 
                 # 在主界面的命令信息区域显示
                 info_text = f"命令: {command}\n\n说明: {doc}\n\n参数: {params_str}"
-                self.cmd_info_text.setPlainText(info_text)
+                self.cmdInfoText.setPlainText(info_text)
             else:
-                self.cmd_info_text.setPlainText('命令信息未找到')
+                self.cmdInfoText.setPlainText('命令信息未找到')
         else:
-            self.cmd_info_text.setPlainText('命令格式错误')
+            self.cmdInfoText.setPlainText('命令格式错误')
     
     def copy_command_to_param(self):
         """
-        将命令从cmd_input复制到param_input
+        将命令从cmdInput复制到paramInput
         """
-        command = self.cmd_input.text()
+        command = self.cmdInput.text()
         if command:
-            self.param_input.setText(command)
+            self.paramInput.setText(command)
     
     def load_history_from_config(self):
         """
@@ -700,30 +547,30 @@ class MainWindow(QMainWindow):
         """
         history = config_manager.get_history()
         for command in history:
-            self.history_list.addItem(command)
+            self.historyList.addItem(command)
     
     def add_to_history(self, command):
         """
         将命令添加到历史记录
         """
         # 检查命令是否已经存在于历史记录中
-        for i in range(self.history_list.count()):
-            if self.history_list.item(i).text() == command:
+        for i in range(self.historyList.count()):
+            if self.historyList.item(i).text() == command:
                 # 如果命令已存在，将其移到列表顶部
-                self.history_list.takeItem(i)
+                self.historyList.takeItem(i)
                 break
         
         # 在列表顶部添加新命令
-        self.history_list.insertItem(0, command)
+        self.historyList.insertItem(0, command)
         
         # 限制历史记录数量
-        if self.history_list.count() > 50:
-            self.history_list.takeItem(self.history_list.count() - 1)
+        if self.historyList.count() > 50:
+            self.historyList.takeItem(self.historyList.count() - 1)
         
         # 保存历史记录到配置文件
         history = []
-        for i in range(self.history_list.count()):
-            history.append(self.history_list.item(i).text())
+        for i in range(self.historyList.count()):
+            history.append(self.historyList.item(i).text())
         config_manager.save_history(history)
     
     def select_history_command(self, item):
@@ -731,7 +578,7 @@ class MainWindow(QMainWindow):
         选择历史命令并发送
         """
         command = item.text()
-        self.param_input.setText(command)
+        self.paramInput.setText(command)
         # 直接发送命令
         self.send_command()
     
@@ -745,32 +592,32 @@ class MainWindow(QMainWindow):
         clear_all_action = menu.addAction("清空所有内容")
         
         # 如果有选中项，添加其他选项
-        item = self.history_list.itemAt(position)
+        item = self.historyList.itemAt(position)
         if item:
             menu.addSeparator()
             add_to_sequence_action = menu.addAction("添加到序列")
             delete_action = menu.addAction("删除")
         
-        action = menu.exec(self.history_list.mapToGlobal(position))
+        action = menu.exec(self.historyList.mapToGlobal(position))
         
         if action == clear_all_action:
             # 清空所有历史指令
             self.clear_history()
         elif item and action == delete_action:
             # 删除历史命令
-            row = self.history_list.row(item)
-            self.history_list.takeItem(row)
+            row = self.historyList.row(item)
+            self.historyList.takeItem(row)
             # 更新配置文件
             history = []
-            for i in range(self.history_list.count()):
-                history.append(self.history_list.item(i).text())
+            for i in range(self.historyList.count()):
+                history.append(self.historyList.item(i).text())
             config_manager.save_history(history)
         elif item and action == add_to_sequence_action:
             # 添加到序列列表
             command = item.text()
             sequence_item = QListWidgetItem(f"[CMD] {command}")
             sequence_item.setCheckState(Qt.CheckState.Checked)
-            self.sequence_list.addItem(sequence_item)
+            self.sequenceList.addItem(sequence_item)
             self.log_message(f"已添加指令到序列: {command}")
     
     def show_log_context_menu(self, pos):
@@ -780,7 +627,7 @@ class MainWindow(QMainWindow):
         menu = QMenu()
         clear_all_action = menu.addAction("清空所有内容")
         
-        action = menu.exec(self.log_text.mapToGlobal(pos))
+        action = menu.exec(self.logText.mapToGlobal(pos))
         
         if action == clear_all_action:
             # 清空所有日志
@@ -790,7 +637,7 @@ class MainWindow(QMainWindow):
         """
         清空所有历史指令
         """
-        self.history_list.clear()
+        self.historyList.clear()
         config_manager.save_history([])
         self.log_message("已清空所有历史指令")
     
@@ -798,7 +645,7 @@ class MainWindow(QMainWindow):
         """
         清空所有日志
         """
-        self.log_text.clear()
+        self.logText.clear()
         # self.log_message("已清空所有日志")
     
     def open_sequence_file(self):
@@ -835,13 +682,13 @@ class MainWindow(QMainWindow):
         open_sequence_file_action = menu.addAction("打开序列组原始文件")
         
         # 如果有选中项，添加修改和删除选项
-        item = self.sequence_list.itemAt(position)
+        item = self.sequenceList.itemAt(position)
         if item:
             menu.addSeparator()
             modify_action = menu.addAction("修改")
             delete_action = menu.addAction("删除")
         
-        action = menu.exec(self.sequence_list.mapToGlobal(position))
+        action = menu.exec(self.sequenceList.mapToGlobal(position))
         
         # 处理菜单项
         if action == add_delay_action:
@@ -861,8 +708,8 @@ class MainWindow(QMainWindow):
             self.modify_sequence_item(item)
         elif item and action == delete_action:
             # 删除序列项
-            row = self.sequence_list.row(item)
-            self.sequence_list.takeItem(row)
+            row = self.sequenceList.row(item)
+            self.sequenceList.takeItem(row)
             self.log_message("已从序列中删除指令")
     
     def show_channel_context_menu(self, pos):
@@ -887,7 +734,7 @@ class MainWindow(QMainWindow):
         disconnect_action = menu.addAction("批量断开")
         disconnect_action.triggered.connect(self.batch_disconnect)
         
-        menu.exec(self.ip_table.mapToGlobal(pos))
+        menu.exec(self.ipTable.mapToGlobal(pos))
     
     def on_cell_changed(self, row, column):
         """
@@ -898,26 +745,26 @@ class MainWindow(QMainWindow):
         
         # 如果修改的是IP地址或端口，更新状态为未连接
         if column == 1 or column == 2:  # IP地址或端口列
-            self.ip_table.setItem(row, 3, QTableWidgetItem('未连接'))
+            self.ipTable.setItem(row, 3, QTableWidgetItem('未连接'))
     
     def add_channel_row(self):
         """
         新增一行通道配置
         """
-        row = self.ip_table.rowCount()
-        self.ip_table.insertRow(row)
+        row = self.ipTable.rowCount()
+        self.ipTable.insertRow(row)
         
         # 设置默认值
-        self.ip_table.setItem(row, 0, QTableWidgetItem(f'Slot{row+1}'))
-        self.ip_table.setItem(row, 1, QTableWidgetItem(''))
-        self.ip_table.setItem(row, 2, QTableWidgetItem('7801'))
-        self.ip_table.setItem(row, 3, QTableWidgetItem('未连接'))
+        self.ipTable.setItem(row, 0, QTableWidgetItem(f'Slot{row+1}'))
+        self.ipTable.setItem(row, 1, QTableWidgetItem(''))
+        self.ipTable.setItem(row, 2, QTableWidgetItem('7801'))
+        self.ipTable.setItem(row, 3, QTableWidgetItem('未连接'))
         
         # 添加连接按钮
         connect_btn = QPushButton('连接')
         connect_btn.setMinimumWidth(40)
         connect_btn.clicked.connect(lambda _, r=row: self.connect_channel(r))
-        self.ip_table.setCellWidget(row, 4, connect_btn)
+        self.ipTable.setCellWidget(row, 4, connect_btn)
         
         # 保存到配置文件
         self.save_channels_to_config()
@@ -929,7 +776,7 @@ class MainWindow(QMainWindow):
         修改序列项
         """
         text = item.text()
-        row = self.sequence_list.row(item)
+        row = self.sequenceList.row(item)
         
         if text.startswith('[CMD]'):
             # 修改指令
@@ -969,7 +816,7 @@ class MainWindow(QMainWindow):
             # 添加延迟到序列列表
             item = QListWidgetItem(f"[DELAY] {delay}ms")
             item.setCheckState(Qt.CheckState.Checked)
-            self.sequence_list.addItem(item)
+            self.sequenceList.addItem(item)
             self.log_message(f"已添加延迟到序列: {delay}ms")
     
     def add_pause_to_sequence(self):
@@ -983,7 +830,7 @@ class MainWindow(QMainWindow):
             # 添加暂停到序列列表
             item = QListWidgetItem(f"[PAUSE] {message}")
             item.setCheckState(Qt.CheckState.Checked)
-            self.sequence_list.addItem(item)
+            self.sequenceList.addItem(item)
             self.log_message(f"已添加暂停到序列: {message}")
     
     def execute_sequence(self):
@@ -995,15 +842,15 @@ class MainWindow(QMainWindow):
             self.log_message('没有已连接的通道，请先连接通道')
             return
         
-        if self.sequence_list.count() == 0:
+        if self.sequenceList.count() == 0:
             self.log_message('序列为空，请先添加指令或延迟')
             return
         
         self.log_message('开始执行指令序列...')
         
         # 遍历序列列表，执行每个勾选的指令或延迟
-        for i in range(self.sequence_list.count()):
-            item = self.sequence_list.item(i)
+        for i in range(self.sequenceList.count()):
+            item = self.sequenceList.item(i)
             # 检查是否勾选
             if item.checkState() != Qt.CheckState.Checked:
                 continue
@@ -1088,14 +935,14 @@ class MainWindow(QMainWindow):
         """
         清空序列
         """
-        self.sequence_list.clear()
+        self.sequenceList.clear()
         self.log_message('序列已清空')
     
     def save_sequence_group(self):
         """
         保存当前序列组到CSV文件
         """
-        if self.sequence_list.count() == 0:
+        if self.sequenceList.count() == 0:
             self.log_message('序列为空，无法保存')
             return
         
@@ -1120,8 +967,8 @@ class MainWindow(QMainWindow):
             with open(filepath, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow(['type', 'content', 'checked'])
-                for i in range(self.sequence_list.count()):
-                    item = self.sequence_list.item(i)
+                for i in range(self.sequenceList.count()):
+                    item = self.sequenceList.item(i)
                     text = item.text()
                     checked = '1' if item.checkState() == Qt.CheckState.Checked else '0'
                     if text.startswith('[CMD]'):
@@ -1166,7 +1013,7 @@ class MainWindow(QMainWindow):
         
         try:
             # 清空当前序列列表
-            self.sequence_list.clear()
+            self.sequenceList.clear()
             
             # 从CSV文件加载序列
             with open(filepath, 'r', newline='', encoding='utf-8') as f:
@@ -1190,10 +1037,10 @@ class MainWindow(QMainWindow):
                         else:
                             item.setCheckState(Qt.CheckState.Unchecked)
                         
-                        self.sequence_list.addItem(item)
+                        self.sequenceList.addItem(item)
             
             # 更新序列组标题
-            self.sequence_group.setTitle(f'指令序列 - {group_name}')
+            self.sequenceGroup.setTitle(f'指令序列 - {group_name}')
             self.log_message(f'已加载序列组: {group_name}')
         except Exception as e:
             self.log_message(f'加载序列组失败: {str(e)}')

@@ -1,0 +1,309 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>780</width>
+    <height>550</height>
+   </rect>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>780</width>
+    <height>550</height>
+   </size>
+  </property>
+  <property name="windowTitle">
+   <string>MIX-debug v1.6 by:zjx</string>
+  </property>
+  <widget class="QWidget" name="centralWidget">
+   <layout class="QVBoxLayout" name="verticalLayout">
+    <item>
+     <widget class="QSplitter" name="mainSplitter">
+      <property name="orientation">
+       <enum>Qt::Horizontal</enum>
+      </property>
+      <property name="handleWidth">
+       <number>5</number>
+      </property>
+      <widget class="QWidget" name="leftWidget">
+       <layout class="QVBoxLayout" name="leftLayout">
+        <property name="spacing">
+         <number>5</number>
+        </property>
+        <item>
+         <widget class="QGroupBox" name="logGroup">
+          <property name="title">
+           <string>日志显示</string>
+          </property>
+          <layout class="QVBoxLayout" name="logLayout">
+           <item>
+            <widget class="QTextEdit" name="logText">
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>200</height>
+              </size>
+             </property>
+             <property name="readOnly">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="cmdSelectGroup">
+          <property name="title">
+           <string>命令选择</string>
+          </property>
+          <layout class="QVBoxLayout" name="cmdSelectLayout">
+           <item>
+            <layout class="QHBoxLayout" name="inputLayout">
+             <item>
+              <widget class="QLabel" name="label">
+               <property name="text">
+                <string>命令:</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLineEdit" name="cmdInput">
+               <property name="minimumSize">
+                <size>
+                 <width>0</width>
+                 <height>30</height>
+                </size>
+               </property>
+               <property name="placeholderText">
+                <string>输入命令或从下方选择</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="cmdInfoGroup">
+          <property name="title">
+           <string>命令信息</string>
+          </property>
+          <layout class="QVBoxLayout" name="cmdInfoLayout">
+           <item>
+            <widget class="QTextEdit" name="cmdInfoText">
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>90</height>
+              </size>
+             </property>
+             <property name="readOnly">
+              <bool>true</bool>
+             </property>
+             <property name="plainText">
+              <string>请选择一个命令以查看详细信息</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="paramGroup">
+          <property name="title">
+           <string>参数输入</string>
+          </property>
+          <layout class="QHBoxLayout" name="paramLayout">
+           <item>
+            <widget class="QLabel" name="label_2">
+             <property name="text">
+              <string>参数:</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLineEdit" name="paramInput">
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>30</height>
+              </size>
+             </property>
+             <property name="placeholderText">
+              <string>输入指令参数</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="cmdGroup">
+          <property name="title">
+           <string>指令发送</string>
+          </property>
+          <layout class="QHBoxLayout" name="cmdLayout">
+           <item>
+            <widget class="QPushButton" name="sendCmdButton">
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>30</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>发送指令</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="rightWidget">
+       <layout class="QVBoxLayout" name="rightLayout">
+        <item>
+         <widget class="QGroupBox" name="historyGroup">
+          <property name="title">
+           <string>历史指令</string>
+          </property>
+          <layout class="QVBoxLayout" name="historyLayout">
+           <item>
+            <widget class="QListWidget" name="historyList">
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>100</height>
+              </size>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="sequenceGroup">
+          <property name="title">
+           <string>指令序列</string>
+          </property>
+          <layout class="QVBoxLayout" name="sequenceLayout">
+           <item>
+            <widget class="QListWidget" name="sequenceList">
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>100</height>
+              </size>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="sequenceButtonsLayout">
+             <item>
+              <widget class="QPushButton" name="executeSequenceButton">
+               <property name="minimumSize">
+                <size>
+                 <width>0</width>
+                 <height>30</height>
+                </size>
+               </property>
+               <property name="text">
+                <string>执行序列</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="ipGroup">
+          <property name="title">
+           <string>通道IP配置</string>
+          </property>
+          <layout class="QVBoxLayout" name="ipLayout">
+           <item>
+            <widget class="QScrollArea" name="scrollArea">
+             <property name="widgetResizable">
+              <bool>true</bool>
+             </property>
+             <widget class="QWidget" name="scrollAreaWidgetContents">
+              <property name="geometry">
+               <rect>
+                <x>0</x>
+                <y>0</y>
+                <width>365</width>
+                <height>133</height>
+               </rect>
+              </property>
+              <layout class="QVBoxLayout" name="scrollLayout">
+               <item>
+                <widget class="QTableWidget" name="ipTable">
+                 <property name="editTriggers">
+                  <set>QAbstractItemView::DoubleClicked</set>
+                 </property>
+                 <property name="selectionMode">
+                  <enum>QAbstractItemView::MultiSelection</enum>
+                 </property>
+                 <property name="selectionBehavior">
+                  <enum>QAbstractItemView::SelectRows</enum>
+                 </property>
+                 <property name="rowCount">
+                  <number>1</number>
+                 </property>
+                 <property name="columnCount">
+                  <number>5</number>
+                 </property>
+                 <row/>
+                 <column>
+                  <property name="text">
+                   <string>通道</string>
+                  </property>
+                 </column>
+                 <column>
+                  <property name="text">
+                   <string>IP地址</string>
+                  </property>
+                 </column>
+                 <column>
+                  <property name="text">
+                   <string>端口</string>
+                  </property>
+                 </column>
+                 <column>
+                  <property name="text">
+                   <string>状态</string>
+                  </property>
+                 </column>
+                 <column>
+                  <property name="text">
+                   <string>操作</string>
+                  </property>
+                 </column>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
