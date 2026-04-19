@@ -1,16 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
+
+# 获取当前目录（项目根目录）
+current_dir = os.path.dirname(os.path.abspath(SPEC))
 
 a = Analysis(
-    ['/Users/gdlocal/Desktop/myCode/myAPP/MIX-test/main_application.py'],
-    pathex=['/Users/gdlocal/Desktop/myCode/myAPP/MIX-test'],
+    [os.path.join(current_dir, 'main_application.py')],
+    pathex=[current_dir],
     binaries=[],
     datas=[
-        ('/Users/gdlocal/Desktop/myCode/myAPP/MIX-test/mix', 'mix'),
-        ('/Users/gdlocal/Desktop/myCode/myAPP/MIX-test/uart', 'uart'),
-        ('/Users/gdlocal/Desktop/myCode/myAPP/MIX-test/ui', 'ui')
+        (os.path.join(current_dir, 'mix'), 'mix'),
+        (os.path.join(current_dir, 'uart'), 'uart'),
+        (os.path.join(current_dir, 'ui'), 'ui')
     ],
-    hiddenimports=['__future__', 'zmq', 'ujson', 'ipaddress', 'uuid', 'serial'],
+    hiddenimports=['__future__', 'zmq', 'ujson', 'ipaddress', 'uuid', 'serial', 'PyQt6', 'serial', 'zmq'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -39,11 +43,11 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['/Users/gdlocal/Desktop/myCode/myAPP/MIX-test/static/sword.icns'],
+    icon=[os.path.join(current_dir, 'static', 'sword.icns')],
 )
 app = BUNDLE(
     exe,
     name='Automation-Platform.app',
-    icon='/Users/gdlocal/Desktop/myCode/myAPP/MIX-test/static/sword.icns',
+    icon=os.path.join(current_dir, 'static', 'sword.icns'),
     bundle_identifier=None,
 )
