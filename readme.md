@@ -20,6 +20,7 @@
    ```
    pyinstaller -F /Users/gdlocal/Desktop/myCode/myAPP/MIX-test/main.py
    pyinstaller /Users/gdlocal/Desktop/myCode/myAPP/MIX-test/main.spec
+   pyinstaller /Users/gdlocal/Desktop/myCode/myAPP/MIX-test/Automation-Platform.spec
 
    ```
 
