@@ -333,8 +333,16 @@ class MainWindow(QMainWindow):
         # 构建命令列表
         commands = []
         for service, methods in commands_info.items():
-            for method in methods:
-                commands.append(f"{service}.{method}")
+            # 确保 methods 是可迭代的
+            if isinstance(methods, (list, dict)):
+                # 如果是字典，使用字典的键
+                if isinstance(methods, dict):
+                    for method in methods:
+                        commands.append(f"{service}.{method}")
+                # 如果是列表，直接使用列表元素
+                else:
+                    for method in methods:
+                        commands.append(f"{service}.{method}")
         
         # 更新自动完成
         self.cmd_model.setStringList(commands)

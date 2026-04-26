@@ -212,10 +212,11 @@ class UartManager:
     def _handle_connection_error(self):
         """
         处理连接错误，触发重连
+        注意：此方法由SerialReader线程调用，不能直接调用disconnect
         """
         self.logger.warning("检测到连接错误，准备重连...")
-        self.disconnect()
-        
+        self.reconnect_triggered = True
+
         # 如果启用了自动重连，启动重连线程
         if self.auto_reconnect:
             self._start_reconnect_thread()
@@ -264,24 +265,29 @@ class UartManager:
         断开串口连接
         """
         self.logger.info("开始断开串口连接...")
-        
+
         # 停止重连线程
         self.reconnect_running = False
         if self.reconnect_thread:
             self.reconnect_thread.join(timeout=1.0)
             self.reconnect_thread = None
             self.logger.info("自动重连线程已停止")
-        
+
+        # 如果是由于错误触发的断开，不等待reader_thread（它已经在结束过程中）
         if self.reader_thread:
-            self.reader_thread.stop()
-            self.reader_thread.join(timeout=1.0)
+            if not getattr(self, 'reconnect_triggered', False):
+                self.reader_thread.stop()
+                self.reader_thread.join(timeout=1.0)
+            else:
+                self.logger.info("reader_thread已由错误处理自动停止")
+                self.reconnect_triggered = False
             self.reader_thread = None
             self.logger.info("串口读取线程已停止")
-        
+
         if self.ser and self.ser.is_open:
             self.ser.close()
             self.logger.info("串口已关闭")
-        
+
         self.ser = None
         success_msg = "✅ 串口已断开"
         self.callback(success_msg)

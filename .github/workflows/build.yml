@@ -9,7 +9,18 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-13        # Intel x86_64
+            arch: x86_64
+            artifact_name: Automation-Platform-x86_64
+          - os: macos-14        # Apple Silicon ARM64
+            arch: arm64
+            artifact_name: Automation-Platform-arm64
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -32,12 +43,50 @@ jobs:
       - name: Verify build output
         run: |
           ls -la dist/
-          ls -la dist/*.app || echo "No .app found"
-          ls -la dist/*.app/Contents/MacOS/ || echo "No MacOS folder found"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Automation-Platform-arm64
+          name: ${{ matrix.artifact_name }}
           path: dist/Automation-Platform.app
+          retention-days: 7
+
+  create-universal:
+    needs: build
+    runs-on: macos-14
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download x86_64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Automation-Platform-x86_64
+          path: ./x86_64
+
+      - name: Download ARM64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Automation-Platform-arm64
+          path: ./arm64
+
+      - name: Create universal app
+        run: |
+          # 创建通用应用程序
+          ditto -rsrc --arch x86_64 ./x86_64/Automation-Platform.app ./universal/Automation-Platform.app
+          ditto -rsrc --arch arm64 ./arm64/Automation-Platform.app ./universal/Automation-Platform.app
+
+      - name: Verify universal app
+        run: |
+          echo "=== 验证通用应用结构 ==="
+          ls -la ./universal/Automation-Platform.app/Contents/MacOS/
+          echo ""
+          echo "=== 检查支持的架构 ==="
+          file ./universal/Automation-Platform.app/Contents/MacOS/Automation-Platform
+
+      - name: Upload universal artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Automation-Platform-universal
+          path: ./universal/Automation-Platform.app
           retention-days: 7

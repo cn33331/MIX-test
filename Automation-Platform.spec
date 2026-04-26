@@ -14,7 +14,15 @@ a = Analysis(
         (os.path.join(current_dir, 'uart'), 'uart'),
         (os.path.join(current_dir, 'ui'), 'ui')
     ],
-    hiddenimports=['__future__', 'zmq', 'ujson', 'ipaddress', 'uuid', 'serial', 'PyQt6', 'serial', 'zmq'],
+    hiddenimports=[
+        '__future__',
+        'zmq',
+        'ujson',
+        'ipaddress',
+        'uuid',
+        'serial',
+        'serial.tools.list_ports',
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
