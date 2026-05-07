@@ -165,7 +165,14 @@ class MainWindow(QMainWindow):
                     try:
                         # 发送命令，支持位置参数和关键字参数
                         result = client.send_command(service_name, method_name, *args, **kwargs)
-                        self.log_message(f'[{channel_name}] send:{command_with_params} \n recv:{result}')
+                        # 格式化JSON输出
+                        if isinstance(result, dict):
+                            result_str = json.dumps(result, indent=2, ensure_ascii=False)
+                        elif isinstance(result, (list, tuple)):
+                            result_str = json.dumps(result, indent=2, ensure_ascii=False)
+                        else:
+                            result_str = str(result)
+                        self.log_message(f'[{channel_name}] send:{command_with_params} \n recv:{result_str}')
                         connected_channels.append(channel_name)
                     except Exception as e:
                         self.log_message(f'[{channel_name}] 发送命令失败: {command_with_params}，错误: {str(e)}')
@@ -180,8 +187,8 @@ class MainWindow(QMainWindow):
             self.log_message('没有已连接的通道')
     
     def log_message(self, message):
-        self.logText.append(message)
-        # 同时使用logger记录到文件
+        self.logText.insertPlainText(message + '\n')
+        self.logText.ensureCursorVisible()
         from utils.logger import logger
         logger.info(message)
     
@@ -333,16 +340,11 @@ class MainWindow(QMainWindow):
         # 构建命令列表
         commands = []
         for service, methods in commands_info.items():
-            # 确保 methods 是可迭代的
-            if isinstance(methods, (list, dict)):
-                # 如果是字典，使用字典的键
-                if isinstance(methods, dict):
-                    for method in methods:
-                        commands.append(f"{service}.{method}")
-                # 如果是列表，直接使用列表元素
-                else:
-                    for method in methods:
-                        commands.append(f"{service}.{method}")
+            # 确保 methods 是字典
+            if isinstance(methods, dict):
+                # 遍历方法名称
+                for method in methods:
+                    commands.append(f"{service}.{method}")
         
         # 更新自动完成
         self.cmd_model.setStringList(commands)
@@ -527,11 +529,22 @@ class MainWindow(QMainWindow):
                 doc = command_info.get('doc', '无说明')
                 params = command_info.get('params', [])
                 
-                # 格式化参数
+                # 格式化参数 - 处理新的参数格式
+                params_list = []
                 if isinstance(params, list):
-                    params_str = ', '.join(params) if params else '无参数'
-                else:
-                    params_str = str(params)
+                    for param in params:
+                        if isinstance(param, dict) and '__MRPC_EXTENDED_1' in param:
+                            param_data = param['__MRPC_EXTENDED_1']
+                            param_name = param_data.get('name', '未命名')
+                            # 如果有默认值，添加到显示中
+                            if 'default' in param_data and param_data['default'] is not None:
+                                params_list.append(f"{param_name} (默认: {param_data['default']})")
+                            else:
+                                params_list.append(param_name)
+                        elif isinstance(param, str):
+                            params_list.append(param)
+                
+                params_str = ', '.join(params_list) if params_list else '无参数'
                 
                 # 在主界面的命令信息区域显示
                 info_text = f"命令: {command}\n\n说明: {doc}\n\n参数: {params_str}"

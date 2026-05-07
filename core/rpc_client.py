@@ -1,6 +1,5 @@
 import sys
 import os
-import importlib.util
 
 class RpcClient:
     def __init__(self, ip, port, log_callback=None):
@@ -17,9 +16,8 @@ class RpcClient:
         记录日志
         """
         print(message)
-        #debug
-        # if self.log_callback:
-        #     self.log_callback(message)
+        if self.log_callback:
+            self.log_callback(message)
     
     def connect(self):
         """
@@ -30,69 +28,44 @@ class RpcClient:
     
     def _initialize_mix8_client(self):
         """
-        动态加载MIX8客户端
+        初始化MIX8客户端（支持开发环境和打包后环境）
         """
         try:
-            # 尝试动态加载MIX8模块
-            # 尝试多个可能的路径
-            possible_paths = []
-            
-            # 检查是否在PyInstaller打包环境中
+            # 获取mix目录路径（支持开发环境和打包后环境）
             if hasattr(sys, '_MEIPASS'):
-                # 在打包环境中，添加临时目录作为搜索路径
-                meipass_path = os.path.join(sys._MEIPASS, 'mix', 'mix8_rpc_client.py')
-                possible_paths.insert(0, meipass_path)
-
-            
-            #添加绝对路径
-            absolute_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'mix', 'mix8_rpc_client.py'))
-            possible_paths.append(absolute_path)
-            
-            self._log(f"尝试加载MIX8模块，搜索路径:")
-            for i, path in enumerate(possible_paths, 1):
-                exists = "存在" if os.path.exists(path) else "不存在"
-                self._log(f"  {i}. {path} [{exists}]")
-            
-            mix8_path = None
-            for path in possible_paths:
-                if os.path.exists(path):
-                    mix8_path = path
-                    break
-            
-            if mix8_path:
-                self._log(f"找到MIX8模块: {mix8_path}")
-                # 动态添加mix8目录和mix子目录到Python路径
-                mix8_dir = os.path.dirname(mix8_path)
-                mix_dir = os.path.join(mix8_dir, 'mix')
-                sys.path.append(mix8_dir)
-                sys.path.append(mix_dir)
-                
-                try:
-                    spec = importlib.util.spec_from_file_location("mix8_client", mix8_path)
-                    mix8_module = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(mix8_module)
-                    
-                    # 初始化MIX8客户端
-                    try:
-                        self.mix8_client = mix8_module.RpcClient(self.ip, int(self.port))
-                        # 检查连接状态
-                        if hasattr(self.mix8_client, 'connected') and self.mix8_client.connected:
-                            self.connected = True
-                            print(f"成功连接到MIX8设备: {self.ip}:{self.port}")
-                        else:
-                            self.connected = False
-                            print(f"连接MIX8设备失败: 客户端初始化失败")
-                    except Exception as e:
-                        print(f"连接MIX8设备失败: {e}")
-                        self.connected = False
-                except Exception as e:
-                    self._log(f"加载MIX8模块失败: {e}")
-                    self._log("请确保mix8目录包含所有必要的依赖文件")
-                    self.connected = False
+                # PyInstaller打包后的路径
+                mix_dir = os.path.join(sys._MEIPASS, 'mix')
+                print(f"[打包环境] sys._MEIPASS: {sys._MEIPASS}")
+                print(f"[打包环境] mix目录路径: {mix_dir}")
             else:
-                self._log(f"MIX8客户端文件不存在")
-                self._log("请将mix8目录放在应用程序旁边")
+                # 开发环境路径
+                mix_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'mix'))
+                print(f"[开发环境] 当前文件路径: {__file__}")
+                print(f"[开发环境] mix目录路径: {mix_dir}")
+            
+            # 添加mix目录到Python路径
+            if mix_dir not in sys.path:
+                sys.path.insert(0, mix_dir)
+                print(f"已将mix目录添加到Python路径")
+            
+            # 直接导入mix8_rpc_client模块
+            from mix8_rpc_client import RpcClient as Mix8RpcClient
+            
+            # 初始化MIX8客户端
+            self.mix8_client = Mix8RpcClient(self.ip, int(self.port))
+            
+            # 检查连接状态
+            if hasattr(self.mix8_client, 'connected') and self.mix8_client.connected:
+                self.connected = True
+                self._log(f"成功连接到MIX8设备: {self.ip}:{self.port}")
+            else:
                 self.connected = False
+                self._log(f"连接MIX8设备失败: 客户端初始化失败")
+                
+        except ImportError as e:
+            self._log(f"导入MIX8客户端失败: {e}")
+            self._log("请确保mix8目录包含mix8_rpc_client.py文件")
+            self.connected = False
         except Exception as e:
             self._log(f"初始化MIX8客户端失败: {e}")
             self.connected = False
@@ -103,7 +76,6 @@ class RpcClient:
         """
         if self.connected and self.mix8_client:
             try:
-                # 调用MIX8客户端的方法获取服务列表
                 return self.mix8_client._list_remote_services()
             except Exception as e:
                 self._log(f"获取服务列表失败: {e}")
@@ -134,18 +106,14 @@ class RpcClient:
             return {}
         
         try:
-            # 获取所有服务列表
             services = self.mix8_client._list_remote_services()
             commands_info = {}
             
-            # 为每个服务获取方法信息
             for service in services:
                 try:
-                    # 调用methods_info获取服务的方法信息
                     methods_obj, sub_methods = self.mix8_client.methods_info(service)
                     commands_info[service] = {}
                     
-                    # 提取每个方法的文档
                     for method in sub_methods:
                         if method in methods_obj['methods'] and methods_obj['methods'][method].get('__doc__'):
                             doc = methods_obj['methods'][method]['__doc__']
@@ -161,3 +129,15 @@ class RpcClient:
         except Exception as e:
             self._log(f"获取命令信息失败: {e}")
             return {}
+    
+    def close(self):
+        """
+        关闭连接
+        """
+        if self.mix8_client:
+            try:
+                self.mix8_client.close()
+                self._log("RPC连接已关闭")
+            except Exception as e:
+                self._log(f"关闭连接失败: {e}")
+        self.connected = False
