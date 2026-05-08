@@ -399,19 +399,19 @@ class SimpleRPCServer:
                         # 可能只有 [client_id, message]
                         request_data = msg_parts[1].decode('utf8')
                     
-                    print(f"收到请求 from {client_id.hex()[:8]}: {request_data[:100]}...")
+                    print(f"收到请求 from {client_id.hex()}: {request_data}")
                     
                     # 处理请求
                     response = self._process_request(request_data, client_id)
                     
                     # 发送响应（ROUTER格式：[client_id, empty, response]）
-                    response_str = json.dumps(response)
+                    response_str = json.dumps(response, indent=2)
                     self.socket.send_multipart([
                         client_id,
                         b'',
                         response_str.encode('utf8')
                     ])
-                    print(f"发送响应: {str(response)[:100]}...")
+                    print(f"发送响应: {response_str}")
                     
             except zmq.ZMQError as e:
                 if self.running:

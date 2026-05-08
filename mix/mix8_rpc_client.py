@@ -8,26 +8,16 @@ import sys
 import time
 import os
 import platform
-import logging
 import json
 import uuid
 import socket
-from logging.handlers import RotatingFileHandler
 
 # 导入ZeroMQ
 import zmq
 
-# 初始化日志
-def init_logger(file_path):
-    max_size = 5 * 1000 * 1000  # ~5MB
-    logger = logging.getLogger("RpcClient")
-    logger.setLevel(logging.DEBUG)
-    handler = RotatingFileHandler(file_path, mode='a', maxBytes=max_size, backupCount=5)
-    handler.setLevel(logging.DEBUG)
-    formatter = logging.Formatter('%(asctime)s %(filename)s:%(lineno)s > %(message)s', datefmt='%Y/%m/%d %H:%M:%S')
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    return logger
+# 添加utils目录到路径
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from utils.logger import init_logger
 
 class JsonRpcClient:
     """
@@ -43,17 +33,16 @@ class JsonRpcClient:
         self.socket = None
         self.context = None
         self.connected = False
-        self.logger = init_logger(os.path.expanduser("~/rpcClient.log"))
+        self.logger = init_logger(name="RpcClient", log_file="rpc.log")
         self.all_method_doc = {}
         self.request_id = 0
-        self.client_identity = f"client_{uuid.uuid4().hex[:8]}"
         
         # 连接到服务器
         self.connect()
     
     def _generate_request_id(self):
-        """生成唯一的请求ID（使用时间戳纳秒）"""
-        return time.monotonic_ns()
+        """生成唯一的请求ID（使用UUID字符串格式，与标准RPC客户端保持一致）"""
+        return uuid.uuid4().hex
     
     def ping(self, ip, port=None):
         """
@@ -87,7 +76,7 @@ class JsonRpcClient:
             self.socket = self.context.socket(zmq.DEALER)
             self.socket.setsockopt(zmq.RCVTIMEO, 5000)  # 5秒超时
             self.socket.setsockopt(zmq.SNDTIMEO, 3000)  # 3秒发送超时
-            self.socket.setsockopt(zmq.IDENTITY, self.client_identity.encode('utf8'))
+            # 不手动设置IDENTITY，让zmq自动生成短身份标识（与标准RPC客户端保持一致）
             
             # 连接到服务器
             server_url = f"tcp://{self.xavier_ip}:{self.xavier_port}"
@@ -149,14 +138,15 @@ class JsonRpcClient:
             if not self.socket:
                 raise Exception("未建立连接")
             
-            # 构建请求（MIX_2.0协议格式）
+            # 构建请求（兼容标准JSON-RPC格式）
             request = {
-                "version": "MIX_2.0",
                 "id": self._generate_request_id(),
                 "remote_id": remote_id,
-                "method": method,
-                "args": params
+                "method": method
             }
+            # 如果有参数，添加args字段
+            if params:
+                request["args"] = params
             
             # 发送请求（DEALER格式: [empty, request_data]）
             request_data = json.dumps(request).encode('utf8')

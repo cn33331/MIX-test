@@ -189,7 +189,8 @@ class MainWindow(QMainWindow):
     def log_message(self, message):
         self.logText.insertPlainText(message + '\n')
         self.logText.ensureCursorVisible()
-        from utils.logger import logger
+        from utils.logger import init_logger
+        logger = init_logger(name="MixToolLogger", log_file="mixTool.log")
         logger.info(message)
     
     def show_config_channel_dialog(self):
