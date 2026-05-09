@@ -3,6 +3,9 @@ name: Build Automation-Platform
 on:
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     runs-on: ${{ matrix.os }}
@@ -38,7 +41,14 @@ jobs:
 
       - name: Verify build output
         run: |
+          echo "=== Build output ==="
           ls -la dist/
+          echo ""
+          echo "=== MacOS contents ==="
+          ls -la dist/Automation-Platform.app/Contents/MacOS/
+          echo ""
+          echo "=== Architecture info ==="
+          file dist/Automation-Platform.app/Contents/MacOS/Automation-Platform
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -66,19 +76,43 @@ jobs:
           name: Automation-Platform-arm64
           path: ./arm64
 
+      - name: Verify downloaded artifacts
+        run: |
+          echo "=== x86_64 artifact ==="
+          ls -la ./x86_64/
+          echo ""
+          echo "=== arm64 artifact ==="
+          ls -la ./arm64/
+
       - name: Create universal app
         run: |
-          # 创建通用应用程序
-          ditto -rsrc --arch x86_64 ./x86_64/Automation-Platform.app ./universal/Automation-Platform.app
-          ditto -rsrc --arch arm64 ./arm64/Automation-Platform.app ./universal/Automation-Platform.app
+          # 创建通用应用程序目录结构
+          mkdir -p ./universal/Automation-Platform.app/Contents/{MacOS,Resources}
+          
+          # 复制 Info.plist 和资源文件（从任意一个架构）
+          cp -r ./x86_64/Automation-Platform.app/Contents/Info.plist ./universal/Automation-Platform.app/Contents/
+          cp -r ./x86_64/Automation-Platform.app/Contents/Resources/* ./universal/Automation-Platform.app/Contents/Resources/ 2>/dev/null || true
+          
+          # 使用 lipo 创建通用二进制
+          echo "Creating universal binary..."
+          lipo -create \
+            ./x86_64/Automation-Platform.app/Contents/MacOS/Automation-Platform \
+            ./arm64/Automation-Platform.app/Contents/MacOS/Automation-Platform \
+            -output ./universal/Automation-Platform.app/Contents/MacOS/Automation-Platform
+          
+          # 设置可执行权限
+          chmod +x ./universal/Automation-Platform.app/Contents/MacOS/Automation-Platform
 
       - name: Verify universal app
         run: |
-          echo "=== 验证通用应用结构 ==="
+          echo "=== Universal app structure ==="
           ls -la ./universal/Automation-Platform.app/Contents/MacOS/
           echo ""
-          echo "=== 检查支持的架构 ==="
+          echo "=== Architecture info ==="
           file ./universal/Automation-Platform.app/Contents/MacOS/Automation-Platform
+          echo ""
+          echo "=== lipo info ==="
+          lipo -info ./universal/Automation-Platform.app/Contents/MacOS/Automation-Platform
 
       - name: Upload universal artifact
         uses: actions/upload-artifact@v4
