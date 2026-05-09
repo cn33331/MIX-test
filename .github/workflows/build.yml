@@ -134,37 +134,52 @@ jobs:
         run: |
           set -x
           
-          mkdir -p ./universal/Automation-Platform.app/Contents/{MacOS,Resources}
+          mkdir -p ./universal/Automation-Platform.app/Contents/{MacOS,Resources,Frameworks,_CodeSignature}
           
           echo "=== Copying Info.plist from arm64 (preferred) ==="
-          if [ -f "./arm64/Automation-Platform.app/Contents/Info.plist" ]; then
-            cp ./arm64/Automation-Platform.app/Contents/Info.plist ./universal/Automation-Platform.app/Contents/
-          elif [ -f "./x86_64/Automation-Platform.app/Contents/Info.plist" ]; then
-            cp ./x86_64/Automation-Platform.app/Contents/Info.plist ./universal/Automation-Platform.app/Contents/
+          if [ -f "./arm64/Contents/Info.plist" ]; then
+            cp ./arm64/Contents/Info.plist ./universal/Automation-Platform.app/Contents/
+          elif [ -f "./x86_64/Contents/Info.plist" ]; then
+            cp ./x86_64/Contents/Info.plist ./universal/Automation-Platform.app/Contents/
           else
             echo "ERROR: Info.plist not found in either artifact"
             exit 1
           fi
           
           echo "=== Copying Resources from arm64 ==="
-          if [ -d "./arm64/Automation-Platform.app/Contents/Resources" ]; then
-            cp -r ./arm64/Automation-Platform.app/Contents/Resources/* ./universal/Automation-Platform.app/Contents/Resources/ 2>/dev/null || true
+          if [ -d "./arm64/Contents/Resources" ]; then
+            cp -r ./arm64/Contents/Resources/* ./universal/Automation-Platform.app/Contents/Resources/ 2>/dev/null || true
+          fi
+          
+          echo "=== Copying Frameworks from arm64 ==="
+          if [ -d "./arm64/Contents/Frameworks" ]; then
+            cp -r ./arm64/Contents/Frameworks/* ./universal/Automation-Platform.app/Contents/Frameworks/ 2>/dev/null || true
+          fi
+          
+          echo "=== Copying _CodeSignature from arm64 ==="
+          if [ -d "./arm64/Contents/_CodeSignature" ]; then
+            cp -r ./arm64/Contents/_CodeSignature/* ./universal/Automation-Platform.app/Contents/_CodeSignature/ 2>/dev/null || true
+          fi
+          
+          echo "=== Copying plugins from arm64 ==="
+          if [ -d "./arm64/Contents/MacOS/plugins" ]; then
+            cp -r ./arm64/Contents/MacOS/plugins ./universal/Automation-Platform.app/Contents/MacOS/ 2>/dev/null || true
           fi
           
           echo "=== Checking binary files ==="
-          if [ ! -f "./x86_64/Automation-Platform.app/Contents/MacOS/Automation-Platform" ]; then
+          if [ ! -f "./x86_64/Contents/MacOS/Automation-Platform" ]; then
             echo "ERROR: x86_64 binary not found"
             exit 1
           fi
-          if [ ! -f "./arm64/Automation-Platform.app/Contents/MacOS/Automation-Platform" ]; then
+          if [ ! -f "./arm64/Contents/MacOS/Automation-Platform" ]; then
             echo "ERROR: arm64 binary not found"
             exit 1
           fi
           
           echo "=== Creating universal binary with lipo ==="
           lipo -create \
-            ./x86_64/Automation-Platform.app/Contents/MacOS/Automation-Platform \
-            ./arm64/Automation-Platform.app/Contents/MacOS/Automation-Platform \
+            ./x86_64/Contents/MacOS/Automation-Platform \
+            ./arm64/Contents/MacOS/Automation-Platform \
             -output ./universal/Automation-Platform.app/Contents/MacOS/Automation-Platform
           
           echo "=== Setting permissions ==="
