@@ -33,6 +33,8 @@ jobs:
         run: |
           echo "=== ARM64 Build output ==="
           ls -la dist/
+          echo "=== MacOS folder ==="
+          ls -la dist/Automation-Platform.app/Contents/MacOS/
           file dist/Automation-Platform.app/Contents/MacOS/Automation-Platform
 
       - name: Upload ARM64 artifact
@@ -68,6 +70,8 @@ jobs:
         run: |
           echo "=== x86_64 Build output ==="
           ls -la dist/
+          echo "=== MacOS folder ==="
+          ls -la dist/Automation-Platform.app/Contents/MacOS/
           file dist/Automation-Platform.app/Contents/MacOS/Automation-Platform
 
       - name: Upload x86_64 artifact
@@ -82,6 +86,12 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 30
     steps:
+      - name: Show current directory
+        run: |
+          echo "=== Current directory ==="
+          pwd
+          ls -la
+
       - name: Download x86_64 artifact
         uses: actions/download-artifact@v4
         with:
@@ -96,28 +106,50 @@ jobs:
 
       - name: Verify downloaded artifacts
         run: |
-          echo "=== x86_64 artifact ==="
+          echo "=== x86_64 artifact content ==="
           ls -la ./x86_64/
           echo ""
-          echo "=== arm64 artifact ==="
+          echo "=== x86_64 MacOS ==="
+          ls -la ./x86_64/Automation-Platform.app/Contents/MacOS/ 2>&1 || echo "x86_64 MacOS folder not found"
+          echo ""
+          echo "=== arm64 artifact content ==="
           ls -la ./arm64/
+          echo ""
+          echo "=== arm64 MacOS ==="
+          ls -la ./arm64/Automation-Platform.app/Contents/MacOS/ 2>&1 || echo "arm64 MacOS folder not found"
 
       - name: Create universal app
         run: |
+          set -x
+          
           mkdir -p ./universal/Automation-Platform.app/Contents/{MacOS,Resources}
           
+          echo "=== Copying Info.plist ==="
           cp ./x86_64/Automation-Platform.app/Contents/Info.plist ./universal/Automation-Platform.app/Contents/
-          cp -r ./x86_64/Automation-Platform.app/Contents/Resources/* ./universal/Automation-Platform.app/Contents/Resources/ 2>/dev/null || true
+          
+          echo "=== Copying Resources ==="
+          cp -r ./x86_64/Automation-Platform.app/Contents/Resources/* ./universal/Automation-Platform.app/Contents/Resources/ 2>/dev/null || echo "No Resources folder or empty"
+          
+          echo "=== Creating universal binary with lipo ==="
+          echo "x86_64 binary path: ./x86_64/Automation-Platform.app/Contents/MacOS/Automation-Platform"
+          echo "arm64 binary path: ./arm64/Automation-Platform.app/Contents/MacOS/Automation-Platform"
+          
+          ls -la ./x86_64/Automation-Platform.app/Contents/MacOS/
+          ls -la ./arm64/Automation-Platform.app/Contents/MacOS/
           
           lipo -create \
             ./x86_64/Automation-Platform.app/Contents/MacOS/Automation-Platform \
             ./arm64/Automation-Platform.app/Contents/MacOS/Automation-Platform \
             -output ./universal/Automation-Platform.app/Contents/MacOS/Automation-Platform
           
+          echo "=== Setting permissions ==="
           chmod +x ./universal/Automation-Platform.app/Contents/MacOS/Automation-Platform
 
       - name: Verify universal app
         run: |
+          echo "=== Universal app structure ==="
+          ls -la ./universal/Automation-Platform.app/Contents/MacOS/
+          echo ""
           echo "=== Architecture info ==="
           file ./universal/Automation-Platform.app/Contents/MacOS/Automation-Platform
           echo ""
