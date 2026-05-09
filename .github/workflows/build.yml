@@ -14,6 +14,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Clear cache
+        run: |
+          rm -rf ~/.cache/pip
+          rm -rf ~/.pyenv
+
       - name: Set up Python (ARM64)
         uses: actions/setup-python@v5
         with:
@@ -35,6 +40,8 @@ jobs:
           ls -la dist/
           echo "=== MacOS folder ==="
           ls -la dist/Automation-Platform.app/Contents/MacOS/
+          echo "=== Contents folder ==="
+          ls -la dist/Automation-Platform.app/Contents/
           file dist/Automation-Platform.app/Contents/MacOS/Automation-Platform
 
       - name: Upload ARM64 artifact
@@ -50,6 +57,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Clear cache
+        run: |
+          rm -rf ~/.cache/pip
+          rm -rf ~/.pyenv
 
       - name: Set up Python (x86_64 via Rosetta)
         uses: actions/setup-python@v5
@@ -72,6 +84,8 @@ jobs:
           ls -la dist/
           echo "=== MacOS folder ==="
           ls -la dist/Automation-Platform.app/Contents/MacOS/
+          echo "=== Contents folder ==="
+          ls -la dist/Automation-Platform.app/Contents/
           file dist/Automation-Platform.app/Contents/MacOS/Automation-Platform
 
       - name: Upload x86_64 artifact
@@ -86,6 +100,10 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 30
     steps:
+      - name: Clear cache
+        run: |
+          rm -rf ~/.cache
+
       - name: Show current directory
         run: |
           echo "=== Current directory ==="
@@ -107,16 +125,10 @@ jobs:
       - name: Verify downloaded artifacts
         run: |
           echo "=== x86_64 artifact content ==="
-          ls -la ./x86_64/
-          echo ""
-          echo "=== x86_64 MacOS ==="
-          ls -la ./x86_64/Automation-Platform.app/Contents/MacOS/ 2>&1 || echo "x86_64 MacOS folder not found"
+          find ./x86_64 -type f -name "*.plist" -o -name "Automation-Platform" 2>&1 || echo "No matching files found in x86_64"
           echo ""
           echo "=== arm64 artifact content ==="
-          ls -la ./arm64/
-          echo ""
-          echo "=== arm64 MacOS ==="
-          ls -la ./arm64/Automation-Platform.app/Contents/MacOS/ 2>&1 || echo "arm64 MacOS folder not found"
+          find ./arm64 -type f -name "*.plist" -o -name "Automation-Platform" 2>&1 || echo "No matching files found in arm64"
 
       - name: Create universal app
         run: |
@@ -124,19 +136,32 @@ jobs:
           
           mkdir -p ./universal/Automation-Platform.app/Contents/{MacOS,Resources}
           
-          echo "=== Copying Info.plist ==="
-          cp ./x86_64/Automation-Platform.app/Contents/Info.plist ./universal/Automation-Platform.app/Contents/
+          echo "=== Copying Info.plist from arm64 (preferred) ==="
+          if [ -f "./arm64/Automation-Platform.app/Contents/Info.plist" ]; then
+            cp ./arm64/Automation-Platform.app/Contents/Info.plist ./universal/Automation-Platform.app/Contents/
+          elif [ -f "./x86_64/Automation-Platform.app/Contents/Info.plist" ]; then
+            cp ./x86_64/Automation-Platform.app/Contents/Info.plist ./universal/Automation-Platform.app/Contents/
+          else
+            echo "ERROR: Info.plist not found in either artifact"
+            exit 1
+          fi
           
-          echo "=== Copying Resources ==="
-          cp -r ./x86_64/Automation-Platform.app/Contents/Resources/* ./universal/Automation-Platform.app/Contents/Resources/ 2>/dev/null || echo "No Resources folder or empty"
+          echo "=== Copying Resources from arm64 ==="
+          if [ -d "./arm64/Automation-Platform.app/Contents/Resources" ]; then
+            cp -r ./arm64/Automation-Platform.app/Contents/Resources/* ./universal/Automation-Platform.app/Contents/Resources/ 2>/dev/null || true
+          fi
+          
+          echo "=== Checking binary files ==="
+          if [ ! -f "./x86_64/Automation-Platform.app/Contents/MacOS/Automation-Platform" ]; then
+            echo "ERROR: x86_64 binary not found"
+            exit 1
+          fi
+          if [ ! -f "./arm64/Automation-Platform.app/Contents/MacOS/Automation-Platform" ]; then
+            echo "ERROR: arm64 binary not found"
+            exit 1
+          fi
           
           echo "=== Creating universal binary with lipo ==="
-          echo "x86_64 binary path: ./x86_64/Automation-Platform.app/Contents/MacOS/Automation-Platform"
-          echo "arm64 binary path: ./arm64/Automation-Platform.app/Contents/MacOS/Automation-Platform"
-          
-          ls -la ./x86_64/Automation-Platform.app/Contents/MacOS/
-          ls -la ./arm64/Automation-Platform.app/Contents/MacOS/
-          
           lipo -create \
             ./x86_64/Automation-Platform.app/Contents/MacOS/Automation-Platform \
             ./arm64/Automation-Platform.app/Contents/MacOS/Automation-Platform \
