@@ -21,13 +21,9 @@ PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def get_resource_path(relative_path):
     """
-    获取资源文件的绝对路径，支持打包后的应用
+    获取资源文件的绝对路径（插件目录在外部，不从MEIPASS加载）
     """
-    if hasattr(sys, '_MEIPASS'):
-        base_path = os.path.join(sys._MEIPASS, 'plugins', 'UART_debug_plugin')
-    else:
-        base_path = PLUGIN_DIR
-    return os.path.join(base_path, relative_path)
+    return os.path.join(PLUGIN_DIR, relative_path)
 
 class UARTDebugPlugin(QWidget):
     """
@@ -35,9 +31,11 @@ class UARTDebugPlugin(QWidget):
     """
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.version = 'v1.0'
         # 从插件目录加载UI文件
         ui_path = get_resource_path('UART_debug_plugin.ui')
         loadUi(ui_path, self)
+        self.setWindowTitle(f'UART-debug {self.version} by:zjx')
         # 使用线程安全的日志回调
         self.uart_manager = None
         self.init_signals()
@@ -52,7 +50,7 @@ class UARTDebugPlugin(QWidget):
         """
         返回插件名称
         """
-        return '串口调试'
+        return f'UART_debug {self.version}'
         
     def init_signals(self):
         """
@@ -92,8 +90,8 @@ class UARTDebugPlugin(QWidget):
         self.portCombo.clear()
         self.portCombo.addItem("手动输入串口地址", "")
         
-        # 延迟导入UartManager
-        from core.uart_manager import UartManager
+        # 从插件目录导入UartManager
+        from uart_manager import UartManager
         uart = UartManager()
         ports = uart.scan_ports()
         if ports:
@@ -156,7 +154,7 @@ class UARTDebugPlugin(QWidget):
         }
         stop_bits = stop_bits_map[self.stopBitsCombo.currentText()]
         
-        from core.uart_manager import UartManager
+        from uart_manager import UartManager
         self.uart_manager = UartManager(callback=self.safe_log_message)
         
         if self.uart_manager.connect(port, baudrate, data_bits, parity, stop_bits, auto_reconnect=True):

@@ -27,11 +27,18 @@ def get_resource_path(relative_path):
 
 def get_plugins_dir():
     """
-    获取插件目录路径
+    获取插件目录路径（plugins目录不打包进app，放在外部方便修改）
     """
     if hasattr(sys, '_MEIPASS'):
-        return os.path.join(sys._MEIPASS, 'plugins')
+        # 打包后：从应用程序所在目录查找plugins文件夹
+        # sys.executable 指向打包后的可执行文件路径
+        app_dir = os.path.dirname(sys.executable)
+        # plugins目录放在可执行文件同一目录下（MacOS目录）
+        plugins_dir = os.path.join(app_dir, 'plugins')
+        print(f"[插件目录] 打包模式，插件目录: {plugins_dir}")
+        return plugins_dir
     else:
+        # 开发环境：从源码目录查找
         return os.path.join(os.path.dirname(os.path.abspath(__file__)), 'plugins')
 
 
@@ -41,7 +48,7 @@ class MainApplication(QMainWindow):
     """
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("自动化任务管理平台")
+        self.setWindowTitle("Tool by:zjx")
         self.setGeometry(100, 100, 800, 600)
         self.setMinimumSize(400, 300)
 

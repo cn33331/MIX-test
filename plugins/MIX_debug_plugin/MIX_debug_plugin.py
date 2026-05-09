@@ -25,13 +25,9 @@ if mix_dir not in sys.path:
 
 def get_resource_path(relative_path):
     """
-    获取资源文件的绝对路径，支持打包后的应用
+    获取资源文件的绝对路径（插件目录在外部，不从MEIPASS加载）
     """
-    if hasattr(sys, '_MEIPASS'):
-        base_path = os.path.join(sys._MEIPASS, 'plugins', 'MIX_debug_plugin')
-    else:
-        base_path = PLUGIN_DIR
-    return os.path.join(base_path, relative_path)
+    return os.path.join(PLUGIN_DIR, relative_path)
 
 class MIXDebugPlugin(QMainWindow):
     """
@@ -39,7 +35,7 @@ class MIXDebugPlugin(QMainWindow):
     """
     def __init__(self):
         super().__init__()
-        self.version = 'v1.6'
+        self.version = 'v2.0'
         # 从插件目录加载UI文件
         ui_path = get_resource_path('MIX_debug_plugin.ui')
         loadUi(ui_path, self)
@@ -61,7 +57,7 @@ class MIXDebugPlugin(QMainWindow):
         """
         返回插件名称
         """
-        return f'MIX-debug {self.version}'
+        return f'MIX_debug {self.version}'
     
     def init_signals(self):
         """
