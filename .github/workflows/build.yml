@@ -38,10 +38,6 @@ jobs:
         run: |
           echo "=== ARM64 Build output ==="
           ls -la dist/
-          echo "=== MacOS folder ==="
-          ls -la dist/Automation-Platform.app/Contents/MacOS/
-          echo "=== Contents folder ==="
-          ls -la dist/Automation-Platform.app/Contents/
           file dist/Automation-Platform.app/Contents/MacOS/Automation-Platform
 
       - name: Upload ARM64 artifact
@@ -62,30 +58,57 @@ jobs:
         run: |
           rm -rf ~/.cache/pip
           rm -rf ~/.pyenv
+          rm -rf /tmp/*
 
-      - name: Set up Python (x86_64 via Rosetta)
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install dependencies (x86_64 via Rosetta)
+      - name: Install x86_64 Python via Rosetta
         run: |
-          arch -x86_64 python -m pip install --upgrade pip
-          arch -x86_64 pip install -r requirements.txt
-          arch -x86_64 pip install pyinstaller
+          # 使用 arch -x86_64 安装 x86_64 版本的 pyenv 和 Python
+          arch -x86_64 bash -c "
+            export PYENV_ROOT=~/.pyenv-x86_64
+            export PATH=\$PYENV_ROOT/bin:\$PATH
+            
+            if [ ! -d \$PYENV_ROOT ]; then
+              git clone https://github.com/pyenv/pyenv.git \$PYENV_ROOT
+            fi
+            
+            eval \"\$(pyenv init -)\"
+            
+            if ! pyenv versions | grep -q 3.10; then
+              pyenv install 3.10.11
+            fi
+            
+            pyenv global 3.10.11
+            
+            python --version
+            python -c \"import platform; print(platform.machine())\"
+          "
 
-      - name: Build x86_64 application via Rosetta
+      - name: Install dependencies (x86_64)
         run: |
-          arch -x86_64 pyinstaller Automation-Platform.spec
+          arch -x86_64 bash -c "
+            export PYENV_ROOT=~/.pyenv-x86_64
+            export PATH=\$PYENV_ROOT/bin:\$PATH
+            eval \"\$(pyenv init -)\"
+            
+            python -m pip install --upgrade pip
+            pip install -r requirements.txt
+            pip install pyinstaller
+          "
+
+      - name: Build x86_64 application
+        run: |
+          arch -x86_64 bash -c "
+            export PYENV_ROOT=~/.pyenv-x86_64
+            export PATH=\$PYENV_ROOT/bin:\$PATH
+            eval \"\$(pyenv init -)\"
+            
+            pyinstaller Automation-Platform.spec
+          "
 
       - name: Verify x86_64 build
         run: |
           echo "=== x86_64 Build output ==="
           ls -la dist/
-          echo "=== MacOS folder ==="
-          ls -la dist/Automation-Platform.app/Contents/MacOS/
-          echo "=== Contents folder ==="
-          ls -la dist/Automation-Platform.app/Contents/
           file dist/Automation-Platform.app/Contents/MacOS/Automation-Platform
 
       - name: Upload x86_64 artifact
@@ -100,16 +123,6 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 30
     steps:
-      - name: Clear cache
-        run: |
-          rm -rf ~/.cache
-
-      - name: Show current directory
-        run: |
-          echo "=== Current directory ==="
-          pwd
-          ls -la
-
       - name: Download x86_64 artifact
         uses: actions/download-artifact@v4
         with:
@@ -122,74 +135,27 @@ jobs:
           name: Automation-Platform-arm64
           path: ./arm64
 
-      - name: Verify downloaded artifacts
-        run: |
-          echo "=== x86_64 artifact content ==="
-          find ./x86_64 -type f -name "*.plist" -o -name "Automation-Platform" 2>&1 || echo "No matching files found in x86_64"
-          echo ""
-          echo "=== arm64 artifact content ==="
-          find ./arm64 -type f -name "*.plist" -o -name "Automation-Platform" 2>&1 || echo "No matching files found in arm64"
-
       - name: Create universal app
         run: |
           set -x
           
           mkdir -p ./universal/Automation-Platform.app/Contents/{MacOS,Resources,Frameworks,_CodeSignature}
           
-          echo "=== Copying Info.plist from arm64 (preferred) ==="
-          if [ -f "./arm64/Contents/Info.plist" ]; then
-            cp ./arm64/Contents/Info.plist ./universal/Automation-Platform.app/Contents/
-          elif [ -f "./x86_64/Contents/Info.plist" ]; then
-            cp ./x86_64/Contents/Info.plist ./universal/Automation-Platform.app/Contents/
-          else
-            echo "ERROR: Info.plist not found in either artifact"
-            exit 1
-          fi
+          cp ./arm64/Contents/Info.plist ./universal/Automation-Platform.app/Contents/
+          cp -r ./arm64/Contents/Resources/* ./universal/Automation-Platform.app/Contents/Resources/ 2>/dev/null || true
+          cp -r ./arm64/Contents/Frameworks/* ./universal/Automation-Platform.app/Contents/Frameworks/ 2>/dev/null || true
+          cp -r ./arm64/Contents/_CodeSignature/* ./universal/Automation-Platform.app/Contents/_CodeSignature/ 2>/dev/null || true
+          cp -r ./arm64/Contents/MacOS/plugins ./universal/Automation-Platform.app/Contents/MacOS/ 2>/dev/null || true
           
-          echo "=== Copying Resources from arm64 ==="
-          if [ -d "./arm64/Contents/Resources" ]; then
-            cp -r ./arm64/Contents/Resources/* ./universal/Automation-Platform.app/Contents/Resources/ 2>/dev/null || true
-          fi
-          
-          echo "=== Copying Frameworks from arm64 ==="
-          if [ -d "./arm64/Contents/Frameworks" ]; then
-            cp -r ./arm64/Contents/Frameworks/* ./universal/Automation-Platform.app/Contents/Frameworks/ 2>/dev/null || true
-          fi
-          
-          echo "=== Copying _CodeSignature from arm64 ==="
-          if [ -d "./arm64/Contents/_CodeSignature" ]; then
-            cp -r ./arm64/Contents/_CodeSignature/* ./universal/Automation-Platform.app/Contents/_CodeSignature/ 2>/dev/null || true
-          fi
-          
-          echo "=== Copying plugins from arm64 ==="
-          if [ -d "./arm64/Contents/MacOS/plugins" ]; then
-            cp -r ./arm64/Contents/MacOS/plugins ./universal/Automation-Platform.app/Contents/MacOS/ 2>/dev/null || true
-          fi
-          
-          echo "=== Checking binary files ==="
-          if [ ! -f "./x86_64/Contents/MacOS/Automation-Platform" ]; then
-            echo "ERROR: x86_64 binary not found"
-            exit 1
-          fi
-          if [ ! -f "./arm64/Contents/MacOS/Automation-Platform" ]; then
-            echo "ERROR: arm64 binary not found"
-            exit 1
-          fi
-          
-          echo "=== Creating universal binary with lipo ==="
           lipo -create \
             ./x86_64/Contents/MacOS/Automation-Platform \
             ./arm64/Contents/MacOS/Automation-Platform \
             -output ./universal/Automation-Platform.app/Contents/MacOS/Automation-Platform
           
-          echo "=== Setting permissions ==="
           chmod +x ./universal/Automation-Platform.app/Contents/MacOS/Automation-Platform
 
       - name: Verify universal app
         run: |
-          echo "=== Universal app structure ==="
-          ls -la ./universal/Automation-Platform.app/Contents/MacOS/
-          echo ""
           echo "=== Architecture info ==="
           file ./universal/Automation-Platform.app/Contents/MacOS/Automation-Platform
           echo ""
