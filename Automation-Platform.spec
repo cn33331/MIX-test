@@ -2,7 +2,6 @@
 
 import os
 
-# 获取当前目录（项目根目录）
 current_dir = os.path.dirname(os.path.abspath(SPEC))
 
 a = Analysis(
@@ -10,9 +9,9 @@ a = Analysis(
     pathex=[current_dir],
     binaries=[],
     datas=[
-        (os.path.join(current_dir, 'mix'), 'mix'),
-        (os.path.join(current_dir, 'uart'), 'uart'),
-        (os.path.join(current_dir, 'ui'), 'ui')
+        (os.path.join(current_dir, 'plugins'), 'plugins'),
+        (os.path.join(current_dir, 'core'), 'core'),
+        (os.path.join(current_dir, 'utils'), 'utils'),
     ],
     hiddenimports=[
         '__future__',

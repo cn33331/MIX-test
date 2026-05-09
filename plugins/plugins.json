@@ -1,0 +1,3 @@
+{
+    "plugins": ["MIX_debug", "UART_debug"]
+}
