@@ -14,11 +14,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Clear cache
-        run: |
-          rm -rf ~/.cache/pip
-          rm -rf ~/.pyenv
-
       - name: Set up Python (ARM64)
         uses: actions/setup-python@v5
         with:
@@ -36,8 +31,6 @@ jobs:
 
       - name: Verify ARM64 build
         run: |
-          echo "=== ARM64 Build output ==="
-          ls -la dist/
           file dist/Automation-Platform.app/Contents/MacOS/Automation-Platform
 
       - name: Upload ARM64 artifact
@@ -48,67 +41,29 @@ jobs:
           retention-days: 7
 
   build-x86_64:
-    runs-on: macos-14
-    timeout-minutes: 60
+    runs-on: macos-13
+    timeout-minutes: 120
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Clear cache
-        run: |
-          rm -rf ~/.cache/pip
-          rm -rf ~/.pyenv
-          rm -rf /tmp/*
-
-      - name: Install x86_64 Python via Rosetta
-        run: |
-          # 使用 arch -x86_64 安装 x86_64 版本的 pyenv 和 Python
-          arch -x86_64 bash -c "
-            export PYENV_ROOT=~/.pyenv-x86_64
-            export PATH=\$PYENV_ROOT/bin:\$PATH
-            
-            if [ ! -d \$PYENV_ROOT ]; then
-              git clone https://github.com/pyenv/pyenv.git \$PYENV_ROOT
-            fi
-            
-            eval \"\$(pyenv init -)\"
-            
-            if ! pyenv versions | grep -q 3.10; then
-              pyenv install 3.10.11
-            fi
-            
-            pyenv global 3.10.11
-            
-            python --version
-            python -c \"import platform; print(platform.machine())\"
-          "
+      - name: Set up Python (x86_64)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
 
       - name: Install dependencies (x86_64)
         run: |
-          arch -x86_64 bash -c "
-            export PYENV_ROOT=~/.pyenv-x86_64
-            export PATH=\$PYENV_ROOT/bin:\$PATH
-            eval \"\$(pyenv init -)\"
-            
-            python -m pip install --upgrade pip
-            pip install -r requirements.txt
-            pip install pyinstaller
-          "
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
 
       - name: Build x86_64 application
         run: |
-          arch -x86_64 bash -c "
-            export PYENV_ROOT=~/.pyenv-x86_64
-            export PATH=\$PYENV_ROOT/bin:\$PATH
-            eval \"\$(pyenv init -)\"
-            
-            pyinstaller Automation-Platform.spec
-          "
+          pyinstaller Automation-Platform.spec
 
       - name: Verify x86_64 build
         run: |
-          echo "=== x86_64 Build output ==="
-          ls -la dist/
           file dist/Automation-Platform.app/Contents/MacOS/Automation-Platform
 
       - name: Upload x86_64 artifact
@@ -137,8 +92,6 @@ jobs:
 
       - name: Create universal app
         run: |
-          set -x
-          
           mkdir -p ./universal/Automation-Platform.app/Contents/{MacOS,Resources,Frameworks,_CodeSignature}
           
           cp ./arm64/Contents/Info.plist ./universal/Automation-Platform.app/Contents/
@@ -156,10 +109,7 @@ jobs:
 
       - name: Verify universal app
         run: |
-          echo "=== Architecture info ==="
           file ./universal/Automation-Platform.app/Contents/MacOS/Automation-Platform
-          echo ""
-          echo "=== lipo info ==="
           lipo -info ./universal/Automation-Platform.app/Contents/MacOS/Automation-Platform
 
       - name: Upload universal artifact
