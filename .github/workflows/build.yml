@@ -14,10 +14,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Verify runner architecture
+        run: |
+          echo "=== Runner Info ==="
+          uname -m
+          arch
+          file /usr/bin/python3
+
       - name: Set up Python (ARM64)
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+
+      - name: Verify Python architecture
+        run: |
+          echo "=== Python Info ==="
+          python --version
+          python -c "import platform; print(f'Platform: {platform.platform()}')"
+          python -c "import platform; print(f'Architecture: {platform.machine()}')"
+          file $(which python)
 
       - name: Install dependencies (ARM64)
         run: |
@@ -31,7 +46,16 @@ jobs:
 
       - name: Verify ARM64 build
         run: |
+          echo "=== ARM64 Build Verification ==="
+          ls -la dist/
+          echo "=== Binary architecture ==="
           file dist/Automation-Platform.app/Contents/MacOS/Automation-Platform
+          ARCH=$(file dist/Automation-Platform.app/Contents/MacOS/Automation-Platform | grep -o "arm64")
+          if [ -z "$ARCH" ]; then
+            echo "ERROR: Built binary is not ARM64 architecture!"
+            exit 1
+          fi
+          echo "SUCCESS: Built binary is ARM64 architecture"
 
       - name: Upload ARM64 artifact
         uses: actions/upload-artifact@v4
@@ -46,6 +70,13 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Verify runner architecture
+        run: |
+          echo "=== Runner Info ==="
+          uname -m
+          arch
+          file /usr/bin/python3
 
       - name: Set up Python (x86_64)
         uses: actions/setup-python@v5
@@ -64,7 +95,14 @@ jobs:
 
       - name: Verify x86_64 build
         run: |
+          echo "=== x86_64 Build Verification ==="
           file dist/Automation-Platform.app/Contents/MacOS/Automation-Platform
+          ARCH=$(file dist/Automation-Platform.app/Contents/MacOS/Automation-Platform | grep -o "x86_64")
+          if [ -z "$ARCH" ]; then
+            echo "ERROR: Built binary is not x86_64 architecture!"
+            exit 1
+          fi
+          echo "SUCCESS: Built binary is x86_64 architecture"
 
       - name: Upload x86_64 artifact
         uses: actions/upload-artifact@v4
@@ -90,6 +128,13 @@ jobs:
           name: Automation-Platform-arm64
           path: ./arm64
 
+      - name: Verify downloaded artifacts
+        run: |
+          echo "=== x86_64 artifact ==="
+          file ./x86_64/Contents/MacOS/Automation-Platform
+          echo "=== arm64 artifact ==="
+          file ./arm64/Contents/MacOS/Automation-Platform
+
       - name: Create universal app
         run: |
           mkdir -p ./universal/Automation-Platform.app/Contents/{MacOS,Resources,Frameworks,_CodeSignature}
@@ -109,6 +154,7 @@ jobs:
 
       - name: Verify universal app
         run: |
+          echo "=== Universal app verification ==="
           file ./universal/Automation-Platform.app/Contents/MacOS/Automation-Platform
           lipo -info ./universal/Automation-Platform.app/Contents/MacOS/Automation-Platform
 
