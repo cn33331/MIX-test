@@ -98,15 +98,53 @@ class RpcClient:
             services = self.mix8_client._list_remote_services()
             commands_info = {}
             
+            # 检查 services 是否为 None
+            if services is None:
+                self._log("服务列表为 None")
+                return commands_info
+            
             for service in services:
+                # 检查服务名是否有效
+                if not service:
+                    continue
+                
                 try:
-                    methods_obj, sub_methods = self.mix8_client.methods_info(service)
+                    result = self.mix8_client.methods_info(service)
+                    
+                    # 检查返回值是否为 None
+                    if result is None:
+                        self._log(f"服务 {service} 的 methods_info 返回 None")
+                        continue
+                    
+                    # 尝试解包结果
+                    if isinstance(result, tuple) and len(result) >= 2:
+                        methods_obj, sub_methods = result[0], result[1]
+                    else:
+                        self._log(f"服务 {service} 的 methods_info 返回格式不正确")
+                        continue
+                    
+                    # 检查 methods_obj 是否为 None
+                    if methods_obj is None:
+                        self._log(f"服务 {service} 的方法对象为 None")
+                        continue
+                    
+                    # 检查 methods_obj 是否包含 'methods' 键
+                    if 'methods' not in methods_obj:
+                        self._log(f"服务 {service} 的方法对象不包含 methods 键")
+                        continue
+                    
+                    # 检查 sub_methods 是否为 None
+                    if sub_methods is None:
+                        self._log(f"服务 {service} 的方法列表为 None")
+                        continue
+                    
                     commands_info[service] = {}
                     
                     for method in sub_methods:
-                        if method in methods_obj['methods'] and methods_obj['methods'][method].get('__doc__'):
-                            doc = methods_obj['methods'][method]['__doc__']
-                            params = methods_obj['methods'][method].get('params', [])
+                        if method in methods_obj['methods']:
+                            method_info = methods_obj['methods'][method]
+                            doc = method_info.get('__doc__', '') or ''
+                            params = method_info.get('params', []) or []
                             commands_info[service][method] = {
                                 'doc': doc,
                                 'params': params
