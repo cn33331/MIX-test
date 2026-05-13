@@ -7,7 +7,7 @@ MIX自动化测试平台是一个基于插件化架构的通用测试工具集�
 ### 核心特性
 
 - **插件化架构**：采用标准插件接口，支持动态加载和卸载功能模块
-- **多协议支持**：内置MIX_2.0、TCP、UART等常用工业通信协议
+- **多协议支持**：内置MIX\_2.0、TCP、UART等常用工业通信协议
 - **可视化分析**：集成波形显示和频谱分析功能
 - **自动化测试**：支持指令序列编辑和批量执行
 - **跨平台运行**：基于Python开发，支持Windows、macOS、Linux系统
@@ -40,11 +40,11 @@ MIX自动化测试平台是一个基于插件化架构的通用测试工具集�
 
 ### 模块说明
 
-| 层级 | 模块 | 说明 |
-|------|------|------|
-| **应用层** | main_application.py | 主应用程序入口，负责插件加载、标签页管理和全局事件处理 |
-| **插件层** | plugins/* | 功能插件目录，每个子目录为一个独立插件 |
-| **工具层** | utils/* | 公共工具模块，提供配置管理和日志记录功能 |
+| 层级      | 模块                   | 说明                          |
+| ------- | -------------------- | --------------------------- |
+| **应用层** | main\_application.py | 主应用程序入口，负责插件加载、标签页管理和全局事件处理 |
+| **插件层** | plugins/\*           | 功能插件目录，每个子目录为一个独立插件         |
+| **工具层** | utils/\*             | 公共工具模块，提供配置管理和日志记录功能        |
 
 ### 插件接口规范
 
@@ -63,7 +63,7 @@ class BasePlugin:
 
 ## 插件概览
 
-### MIX_debug 插件
+### MIX\_debug 插件
 
 **功能定位**：MIX设备调试工具，用于连接和控制MIX系列设备。
 
@@ -74,9 +74,9 @@ class BasePlugin:
 - 命令自动提示和文档显示
 - 指令序列编辑与批量执行
 
-**详细文档**：[plugins/MIX_debug_plugin/readme.md](plugins/MIX_debug_plugin/readme.md)
+**详细文档**：[plugins/MIX\_debug\_plugin/readme.md](plugins/MIX_debug_plugin/readme.md)
 
-### TCP_debug 插件
+### TCP\_debug 插件
 
 **功能定位**：TCP网络调试工具，支持TCP服务器和客户端模式。
 
@@ -87,9 +87,9 @@ class BasePlugin:
 - 双向数据收发
 - 实时通信日志
 
-**详细文档**：[plugins/TCP_debug_plugin/readme.md](plugins/TCP_debug_plugin/readme.md)
+**详细文档**：[plugins/TCP\_debug\_plugin/readme.md](plugins/TCP_debug_plugin/readme.md)
 
-### UART_debug 插件
+### UART\_debug 插件
 
 **功能定位**：串口通信调试工具，用于串口设备调试。
 
@@ -100,7 +100,7 @@ class BasePlugin:
 - 数据收发与显示
 - 自动重连机制
 
-**详细文档**：[plugins/UART_debug_plugin/readme.md](plugins/UART_debug_plugin/readme.md)
+**详细文档**：[plugins/UART\_debug\_plugin/readme.md](plugins/UART_debug_plugin/readme.md)
 
 ### Waveform 插件
 
@@ -113,7 +113,7 @@ class BasePlugin:
 - FFT频谱计算
 - 波形可视化显示
 
-**详细文档**：[plugins/Waveform_plugin/readme.md](plugins/Waveform_plugin/readme.md)
+**详细文档**：[plugins/Waveform\_plugin/readme.md](plugins/Waveform_plugin/readme.md)
 
 ## 项目结构
 
@@ -254,12 +254,12 @@ class MyPlugin(QWidget):
 
 ### 插件依赖
 
-| 插件 | 额外依赖 |
-|------|---------|
-| MIX_debug | pyzmq |
-| TCP_debug | - |
-| UART_debug | pyserial |
-| Waveform | numpy, scipy |
+| 插件          | 额外依赖         |
+| ----------- | ------------ |
+| MIX\_debug  | pyzmq        |
+| TCP\_debug  | -            |
+| UART\_debug | pyserial     |
+| Waveform    | numpy, scipy |
 
 完整依赖列表见 `requirements.txt`。
 
@@ -287,10 +287,10 @@ pyinstaller -F main.py
 
 ## 相关文档
 
-- [MIX_debug_plugin 详细文档](plugins/MIX_debug_plugin/readme.md)
-- [TCP_debug_plugin 详细文档](plugins/TCP_debug_plugin/readme.md)
-- [UART_debug_plugin 详细文档](plugins/UART_debug_plugin/readme.md)
-- [Waveform_plugin 详细文档](plugins/Waveform_plugin/readme.md)
+- [MIX\_debug\_plugin 详细文档](plugins/MIX_debug_plugin/readme.md)
+- [TCP\_debug\_plugin 详细文档](plugins/TCP_debug_plugin/readme.md)
+- [UART\_debug\_plugin 详细文档](plugins/UART_debug_plugin/readme.md)
+- [Waveform\_plugin 详细文档](plugins/Waveform_plugin/readme.md)
 
 ## 注意事项
 
@@ -304,3 +304,20 @@ pyinstaller -F main.py
 - 平台版本：2.0
 - Python版本：3.8+
 - PyQt版本：6.0+
+
+## 软著作申请流程
+
+1. 软件信息
+
+   软件名称：多插件多模块快速开发平台
+
+   版本号：V3.0
+
+   开发完成日期：2026年5月13日
+
+   首次发表日期：2026年5月13日
+
+   开发方式：独立开发
+
+   著作权人：曾晶鑫（个人）
+
