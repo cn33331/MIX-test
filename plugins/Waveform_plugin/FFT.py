@@ -308,7 +308,7 @@ def get_fundamental_volt_apple(csv_path, sample_rate, window_type,start_frep,end
 
 def get_fundamental_volt(csv_path, sample_rate, window_type,start_frep,end_frep,step_frep,gain=1,impedance=50, cal_constant=10.79,selected_radio_vpp="fixture",selected_radio_dbm="fixture"):
 
-    if selected_radio_dbm == "fixture":
+    if selected_radio_vpp == "fixture":
         return get_fundamental_volt_Fixture(csv_path, sample_rate, window_type,start_frep,end_frep,step_frep,gain,impedance, cal_constant,"fixture")
     else:
         return get_fundamental_volt_apple(csv_path, sample_rate, window_type,start_frep,end_frep,step_frep,gain,impedance, cal_constant,"apple")

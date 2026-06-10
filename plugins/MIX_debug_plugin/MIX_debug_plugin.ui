@@ -6,34 +6,27 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>780</width>
+    <width>800</width>
     <height>550</height>
    </rect>
   </property>
   <property name="minimumSize">
    <size>
-    <width>780</width>
+    <width>800</width>
     <height>550</height>
    </size>
   </property>
   <property name="windowTitle">
-   <string>MIX-debug v1.6 by:zjx</string>
+   <string>MIX-debug v1.8 by:zjx</string>
   </property>
   <widget class="QWidget" name="centralWidget">
-   <layout class="QVBoxLayout" name="verticalLayout">
+   <layout class="QHBoxLayout" name="verticalLayout" stretch="2,3">
+    <property name="spacing">
+     <number>2</number>
+    </property>
     <item>
-     <widget class="QSplitter" name="mainSplitter">
-      <property name="orientation">
-       <enum>Qt::Horizontal</enum>
-      </property>
-      <property name="handleWidth">
-       <number>5</number>
-      </property>
-      <widget class="QWidget" name="leftWidget">
-       <layout class="QVBoxLayout" name="leftLayout" stretch="7,1,3,1,1">
-        <property name="spacing">
-         <number>5</number>
-        </property>
+      <widget class="QWidget" name="midWidget">
+        <layout class="QVBoxLayout" name="midLayout">
         <item>
          <widget class="QGroupBox" name="logGroup">
           <property name="title">
@@ -45,7 +38,7 @@
              <property name="minimumSize">
               <size>
                <width>0</width>
-               <height>200</height>
+               <height>300</height>
               </size>
              </property>
              <property name="readOnly">
@@ -56,6 +49,22 @@
           </layout>
          </widget>
         </item>
+       </layout>
+      </widget>
+    </item>
+    <item>
+     <widget class="QSplitter" name="mainSplitter">
+      <property name="orientation">
+       <enum>Qt::Horizontal</enum>
+      </property>
+      <property name="handleWidth">
+       <number>5</number>
+      </property>
+      <widget class="QWidget" name="leftWidget">
+       <layout class="QVBoxLayout" name="leftLayout" stretch="1,3,1,1">
+        <property name="spacing">
+         <number>4</number>
+        </property>
         <item>
          <widget class="QGroupBox" name="cmdSelectGroup">
           <property name="title">
@@ -191,7 +200,7 @@
         <item>
          <widget class="QGroupBox" name="sequenceGroup">
           <property name="title">
-           <string>指令序列</string>
+           <string>当前没加载指令序列 - 右键点击 - 加载序列</string>
           </property>
           <layout class="QVBoxLayout" name="sequenceLayout">
            <item>
@@ -243,6 +252,12 @@
                 <width>365</width>
                 <height>133</height>
                </rect>
+              </property>
+              <property name="minimumSize">
+               <size>
+                <width>365</width>
+                <height>133</height>
+               </size>
               </property>
               <layout class="QVBoxLayout" name="scrollLayout">
                <item>

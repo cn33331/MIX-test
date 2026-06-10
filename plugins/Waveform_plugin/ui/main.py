@@ -288,9 +288,9 @@ class Ui_ui_test(object):
         _translate = QtCore.QCoreApplication.translate
         ui_test.setWindowTitle(_translate("ui_test", "Version:0.9_by:zjx"))
         self.groupBox.setTitle(_translate("ui_test", "解析文件"))
-        self.label.setText(_translate("ui_test", "bin文件路径，请将文件拖到下方侧输入框"))
+        self.label.setText(_translate("ui_test", "bin文件路径，请将文件拖到下方输入框"))
         self.pushButton_bin.setText(_translate("ui_test", "解析bin文件生成CSV文件"))
-        self.label_csv.setText(_translate("ui_test", "csv文件路径，请将文件拖到右侧输入框"))
+        self.label_csv.setText(_translate("ui_test", "csv文件路径，请将文件拖到下方输入框"))
         self.groupBox_4.setTitle(_translate("ui_test", "频谱图"))
         self.label_12.setText(_translate("ui_test", "需要标记的频率"))
         self.lineEdit_flag_frep.setText(_translate("ui_test", "112000"))

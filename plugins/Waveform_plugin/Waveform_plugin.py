@@ -597,7 +597,7 @@ class WaveformWindow(QDialog):
         self.center_zoom_btn.clicked.connect(self.on_zoom_mode_clicked)
         
         # 确保 PlotWidget 的初始缩放模式与按钮状态一致
-        self.plot_widget.zoom_mode = ZoomMode.HEIGHT
+        self.plot_widget.zoom_mode = ZoomMode.WIDTH
         
         btn_layout.addSpacing(20)
         
@@ -676,8 +676,8 @@ class WaveformWindow(QDialog):
         x_data, y_data = decimate_data(x_data, y_data, max_points=5000)
         
         self.plot_widget.set_data(x_data, y_data)
-        self.plot_widget.set_labels("数据点序号（1开始）", "电压值 (V)")
-        self.plot_widget.set_title(f"电压波形图（第 {start_idx} - 第 {end_idx} 个数据点，降采样后 {len(x_data)} 个点）")
+        # self.plot_widget.set_labels("数据点序号（1开始）", "电压值 (V)")
+        self.plot_widget.set_title(f"第 {start_idx} - 第 {end_idx} 个数据点")
         self.plot_widget.clear_vertical_line()
         
     def plot_spectrum(self, fundamental_volt_dict, flag_frep):

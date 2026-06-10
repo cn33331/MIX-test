@@ -46,6 +46,7 @@ class MIXDebugPlugin(QMainWindow):
         self.load_channels_from_config()
         self.load_history_from_config()
         self.resizeEvent = self.on_resize
+        self.sequence = False
     
     def get_widget(self):
         """
@@ -158,8 +159,12 @@ class MIXDebugPlugin(QMainWindow):
                             result_str = json.dumps(result, indent=2, ensure_ascii=False)
                         else:
                             result_str = str(result)
-                        self.log_message(f'[{channel_name}] send:{command_with_params} \n recv:{result_str}')
-                        connected_channels.append(channel_name)
+                        if self.sequence == True:
+                            self.log_message(f'[{channel_name}] recv:{result_str}')
+                            connected_channels.append(channel_name)
+                        else:
+                            self.log_message(f'[{channel_name}] send:{command_with_params} \n recv:{result_str}')
+                            connected_channels.append(channel_name)
                     except Exception as e:
                         self.log_message(f'[{channel_name}] 发送命令失败: {command_with_params}，错误: {str(e)}')
                 else:
@@ -213,17 +218,14 @@ class MIXDebugPlugin(QMainWindow):
         
         dialog.setLayout(layout)
         
-        def get_ip(slot, startNum=33, setp=1, mixVer="mix8"):
+        def get_ip(slot, startNum=33, setp=1,start_num_head="111.111.111."):
             sw1 = str(slot)[-1]
             sw2 = ('00' + str(slot))[-2]
             add_num = int(sw2) * 16 + int(sw1)
             add_num = add_num - 1
             add_num = int(add_num / int(setp))
             ip_address = int(startNum) + add_num
-            if mixVer == "mix8":
-                ip_address = "192.168.99." + str(ip_address)
-            else:
-                ip_address = "169.254.1." + str(ip_address)
+            ip_address = str(start_num_head) + str(ip_address)
             return ip_address
         
         def on_ok():
@@ -232,8 +234,9 @@ class MIXDebugPlugin(QMainWindow):
             start_port = int(port_input.text())
             port_step_value = int(port_step.text()) if port_step.text() else 0
             
-            start_num = int(start_ip.split('.')[-1])
-            
+            start_ip_list = start_ip.split('.')
+            start_num = int(start_ip_list[-1])
+            start_num_head = ".".join(str(num) for num in start_ip_list[:3])
             while self.ipTable.rowCount() > 0:
                 self.ipTable.removeRow(0)
             
@@ -241,7 +244,7 @@ class MIXDebugPlugin(QMainWindow):
                 slot_number = i + 1
                 self.ipTable.insertRow(i)
                 
-                ip_address = get_ip(slot_number, start_num, 1, "mix8")
+                ip_address = get_ip(slot_number, start_num, 1, start_num_head+".")
                 
                 if port_step_value == 0:
                     port = start_port
@@ -793,15 +796,17 @@ class MIXDebugPlugin(QMainWindow):
                         key, value = part.split('=', 1)
                         kwargs[key] = value
                     else:
-                        args.append(part)
+                        if part != "" and part != " " :
+                            args.append(part)
                 
                 if '.' in cmd:
                     service_name, method_name = cmd.split('.', 1)
                 else:
                     self.log_message('[序列] 命令格式错误，应为 service.method')
                     continue
-                
+                self.sequence = True
                 self.send_command_to_all_channels(service_name, method_name, command, *args, **kwargs)
+                self.sequence = False
             elif text.startswith('[DELAY]'):
                 delay_str = text[7:].replace('ms', '').strip()
                 try:
@@ -929,7 +934,7 @@ class MIXDebugPlugin(QMainWindow):
                         
                         self.sequenceList.addItem(item)
             
-            self.sequenceGroup.setTitle(f'指令序列 - {group_name}')
+            self.sequenceGroup.setTitle(f'当前指令序列 - {group_name} - 右键点击管理序列')
             self.log_message(f'已加载序列组: {group_name}')
         except Exception as e:
             self.log_message(f'加载序列组失败: {str(e)}')

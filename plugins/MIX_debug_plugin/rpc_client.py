@@ -83,7 +83,7 @@ class RpcClient:
             ret = self.mix8_client.stub(service_name, method_name, *args, **kwargs)
             return ret
         except Exception as e:
-            self._log(f"发送指令失败: {e}")
+            # self._log(f"发送指令失败: {e}")
             return f"错误: {str(e)}"
     
     def get_all_commands(self):
@@ -107,10 +107,10 @@ class RpcClient:
                 # 检查服务名是否有效
                 if not service:
                     continue
-                
+                if service =='power':
+                    print("=================>power")
                 try:
                     result = self.mix8_client.methods_info(service)
-                    
                     # 检查返回值是否为 None
                     if result is None:
                         self._log(f"服务 {service} 的 methods_info 返回 None")

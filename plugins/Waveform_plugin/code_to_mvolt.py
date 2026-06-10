@@ -17,7 +17,7 @@ def code_to_mvolt2(code, mvref=1000):
     # print(co2123de)
     if code >= 0x800:  # 处理负数（补码）
         code -= 0x1000
-    return code / 0x7ff * 42.59 # 计算毫伏值
+    return code / 0x7ff * 58.3 # 计算毫伏值
 
 def code_to_mvolt(code, mvref=1000):
     code >>= 20  # 右移20位

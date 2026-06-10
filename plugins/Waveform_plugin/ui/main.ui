@@ -41,7 +41,7 @@
             <item>
              <widget class="QLabel" name="label">
               <property name="text">
-               <string>bin文件路径，请将文件拖到下方侧输入框</string>
+               <string>bin文件路径，请将文件拖到下方输入框</string>
               </property>
              </widget>
             </item>
@@ -58,7 +58,7 @@
             <item>
              <widget class="QLabel" name="label_csv">
               <property name="text">
-               <string>csv文件路径，请将文件拖到右侧输入框</string>
+               <string>csv文件路径，请将文件拖到下方输入框</string>
               </property>
              </widget>
             </item>
