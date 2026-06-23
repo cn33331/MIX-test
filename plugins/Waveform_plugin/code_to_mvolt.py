@@ -9,7 +9,7 @@ import numpy as np
 # 小端排序
 # \x05\xa0\x00\x00'
 
-def code_to_mvolt2(code, mvref=1000):
+def code_to_mvolt2(code, gain=58.3,mvref=1000):
     # 从 32 位数据中提取最高 12 位
     # 05a
     code >>= 20  # 右移20位
@@ -17,7 +17,8 @@ def code_to_mvolt2(code, mvref=1000):
     # print(co2123de)
     if code >= 0x800:  # 处理负数（补码）
         code -= 0x1000
-    return code / 0x7ff * 58.3 # 计算毫伏值
+    print(gain)
+    return code / 0x7ff * gain # 计算毫伏值
 
 def code_to_mvolt(code, mvref=1000):
     code >>= 20  # 右移20位
@@ -47,7 +48,7 @@ def to_12bit_signed(value):
         # Positive number
         return value
 
-def decode_bin_to_csv(bin_path):
+def decode_bin_to_csv(bin_path,gain):
     # 生成CSV文件路径（与bin文件同目录、同名）
     csv_path = os.path.splitext(bin_path)[0] + ".csv"
     
@@ -62,7 +63,7 @@ def decode_bin_to_csv(bin_path):
                 code = struct.unpack('<I', data)[0]  # 解析为32位无符号整数（小端
                 # print(code)
                 # 解码为毫伏值
-                voltage = code_to_mvolt2(code)
+                voltage = code_to_mvolt2(code,gain)
                 # 每行写入一个数据
                 csv_file.write(f"{voltage:.6f}\n")
         

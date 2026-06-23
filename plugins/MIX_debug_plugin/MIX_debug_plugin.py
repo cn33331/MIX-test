@@ -35,7 +35,7 @@ class MIXDebugPlugin(QMainWindow):
     """
     def __init__(self):
         super().__init__()
-        self.version = 'v2.0'
+        self.version = 'v2'
         # 从插件目录加载UI文件
         ui_path = get_resource_path('MIX_debug_plugin.ui')
         loadUi(ui_path, self)

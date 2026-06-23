@@ -11,3 +11,4 @@ rpc_7/
 error.log/
 plugins/MIX_debug_plugin/mix/
 soft_copyright/
+.trae/

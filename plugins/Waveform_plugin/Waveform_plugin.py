@@ -11,9 +11,19 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import QPainter, QPen, QColor, QFont, QPolygonF
 
-from ui.main import Ui_ui_test  # 从生成的UI文件导入
 import FFT
 import code_to_mvolt
+from PyQt6.uic import loadUi
+
+# 添加插件目录到路径
+PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, PLUGIN_DIR)
+
+def get_resource_path(relative_path):
+    """
+    获取资源文件的绝对路径（插件目录在外部，不从MEIPASS加载）
+    """
+    return os.path.join(PLUGIN_DIR, relative_path)
 
 
 def load_external_file(file_name):
@@ -744,10 +754,13 @@ class WaveformWindow(QDialog):
         """
 
 
-class WaveformPlugin(QWidget, Ui_ui_test):
+class WaveformPlugin(QWidget):
     def __init__(self):
         super().__init__()
-        self.setupUi(self)
+        self.version = 'v1'
+        ui_path = get_resource_path('main.ui')
+        loadUi(ui_path, self)
+        self.setWindowTitle(f'Waveform {self.version} by:zjx')
 
         self.comboBox_frep_1.addItems(["112000", "238000", "322000", "406000", "464000", "498000"])
         enable_drag_drop(self.textEdit_binPath)
@@ -761,18 +774,6 @@ class WaveformPlugin(QWidget, Ui_ui_test):
         self.radio_group.addButton(self.radioButton_blackman_harris_window)
         self.radioButton_flattop_window.setChecked(True)
 
-        self.radio_group_vpp = QButtonGroup(self)
-        self.radio_group_vpp.setExclusive(True)
-        self.radio_group_vpp.addButton(self.radioButton_vpp_apple)
-        self.radio_group_vpp.addButton(self.radioButton_vpp_fixture)
-        self.radioButton_vpp_fixture.setChecked(True)
-
-        self.radio_group_dbm = QButtonGroup(self)
-        self.radio_group_dbm.setExclusive(True)
-        self.radio_group_dbm.addButton(self.radioButton_dbm_apple)
-        self.radio_group_dbm.addButton(self.radioButton_dbm_fixture)
-        self.radioButton_dbm_fixture.setChecked(True)
-
         self.pushButton_bin.clicked.connect(self.analysis_bin)
         self.pushButton_csv.clicked.connect(self.analysis_csv)
         self.pushButton_time.clicked.connect(self.plot_voltage_range_waveform)
@@ -782,7 +783,10 @@ class WaveformPlugin(QWidget, Ui_ui_test):
         return self
 
     def get_name(self):
-        return "Waveform"
+        """
+        返回插件名称
+        """
+        return f'Waveform {self.version}'
 
     def analysis_bin(self):
         bin_path = self.textEdit_binPath.toPlainText()
@@ -795,7 +799,12 @@ class WaveformPlugin(QWidget, Ui_ui_test):
             return False
 
         self.textBrowser.append("开始解析 Bin 文件======")
-        csv_path = code_to_mvolt.decode_bin_to_csv(bin_path)
+        try:
+            DBM_gain = float(self.lineEdit_DBM_gain.text())
+        except ValueError:
+            self.show_message("错误", "衰减倍数获取失败")
+            return
+        csv_path = code_to_mvolt.decode_bin_to_csv(bin_path,DBM_gain)
         self.textEdit_csvPath.setPlainText(csv_path)
         self.textBrowser.append(f'<font color="green">[成功]</font> 生成 CSV 文件：{csv_path}')
 
@@ -840,8 +849,8 @@ class WaveformPlugin(QWidget, Ui_ui_test):
             self.show_message("错误", "负载阻抗或校准常数或gain有误")
             return
 
-        selected_radio_vpp = self.radio_group_vpp.checkedButton().text()
-        selected_radio_dbm = self.radio_group_dbm.checkedButton().text()
+        selected_radio_vpp = "fixture"
+        selected_radio_dbm = "fixture"
         if selected_radio_vpp == "apple":
             dbm_value_1, fundamental_voltage = FFT.get_dbm_by_frequency(
                 csv_path, sample_rate, load_impedance, 
@@ -984,8 +993,8 @@ class WaveformPlugin(QWidget, Ui_ui_test):
 
         sample_rate = int(self.lineEdit_sample_rate.text())
 
-        selected_radio_vpp = self.radio_group_vpp.checkedButton().text()
-        selected_radio_dbm = self.radio_group_dbm.checkedButton().text()
+        selected_radio_vpp = "fixture"
+        selected_radio_dbm = "fixture"
 
         # 直接导入 FFT 而不是加载外部文件
         data_dict = FFT.get_fundamental_volt(
