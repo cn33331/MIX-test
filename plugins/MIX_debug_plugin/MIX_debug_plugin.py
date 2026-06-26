@@ -1,4 +1,5 @@
 import sys
+import threading
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
                             QLabel, QLineEdit, QPushButton, QTextEdit, 
                             QTableWidget, QTableWidgetItem, QGroupBox, 
@@ -24,19 +25,36 @@ if mix_dir not in sys.path:
     sys.path.insert(0, mix_dir)
 
 def get_resource_path(relative_path):
-    """
-    获取资源文件的绝对路径（插件目录在外部，不从MEIPASS加载）
+    """获取资源文件的绝对路径。
+
+    用于在插件目录中查找资源文件，确保打包后仍能正确定位资源。
+
+    Args:
+        relative_path: 相对路径字符串，相对于插件目录
+
+    Returns:
+        资源文件的绝对路径字符串
+
+    Warning:
+        此函数假设插件目录在外部，不从MEIPASS加载
     """
     return os.path.join(PLUGIN_DIR, relative_path)
 
 class MIXDebugPlugin(QMainWindow):
+    """MIX调试插件主窗口类。
+
+    提供多通道RPC通信、命令管理、序列执行等功能的工业级调试工具。
+    支持MIX_2.0协议，提供命令自动补全、历史记录、日志显示等特性。
     """
-    MIX调试插件主窗口
-    """
+
     def __init__(self):
+        """初始化MIX调试插件主窗口。
+
+        加载UI文件、初始化信号连接、加载配置和历史记录。
+        """
         super().__init__()
-        self.version = 'v2'
-        # 从插件目录加载UI文件
+        self.log_mutex = threading.Lock()
+        self.version = 'v3'
         ui_path = get_resource_path('MIX_debug_plugin.ui')
         loadUi(ui_path, self)
         self.setWindowTitle(f'MIX-debug {self.version} by:zjx')
@@ -49,20 +67,26 @@ class MIXDebugPlugin(QMainWindow):
         self.sequence = False
     
     def get_widget(self):
-        """
-        返回插件的主窗口部件
+        """返回插件的主窗口部件。
+
+        Returns:
+            QMainWindow: 插件的主窗口实例
         """
         return self
     
     def get_name(self):
-        """
-        返回插件名称
+        """返回插件名称。
+
+        Returns:
+            str: 插件名称，包含版本号
         """
         return f'MIX_debug {self.version}'
     
     def init_signals(self):
-        """
-        初始化信号连接
+        """初始化所有信号与槽的连接。
+
+        配置命令输入、按钮点击、列表选择、右键菜单等事件的处理函数。
+        同时设置表格列的自动调整模式和命令自动补全功能。
         """
         self.cmdInput.returnPressed.connect(self.copy_command_to_param)
         self.sendCmdButton.clicked.connect(self.send_command)
@@ -91,8 +115,12 @@ class MIXDebugPlugin(QMainWindow):
         self.ipTable.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
     
     def on_resize(self, event):
-        """
-        窗口大小变化时的处理
+        """窗口大小变化时调整左右面板的尺寸比例。
+
+        确保右侧面板保持450px宽度，左侧面板占据剩余空间。
+
+        Args:
+            event: QResizeEvent事件对象，包含新的窗口尺寸信息
         """
         width = event.size().width()
         height = event.size().height()
@@ -105,8 +133,13 @@ class MIXDebugPlugin(QMainWindow):
                     child.setSizes([int(left_width), int(right_width)])
     
     def send_command(self):
-        """
-        发送指令到所有已连接通道
+        """发送指令到所有已连接通道。
+
+        解析用户输入的命令和参数，支持位置参数和关键字参数两种格式。
+        命令格式为: service.method arg1 arg2 key=value
+
+        Raises:
+            ValueError: 命令格式错误时记录日志但不抛出异常
         """
         command_with_params = self.paramInput.text()
         
@@ -139,50 +172,115 @@ class MIXDebugPlugin(QMainWindow):
         self.send_command_to_all_channels(service_name, method_name, command_with_params, *args, **kwargs)
         self.add_to_history(command_with_params)
     
-    def send_command_to_all_channels(self, service_name, method_name, command_with_params, *args, **kwargs):
+    def _send_command_to_channel(self, row, service_name, method_name, command_with_params, args, kwargs, connected_channels):
+        """向单个通道发送RPC命令（线程函数）。
+
+        Args:
+            row: 通道行号
+            service_name: 服务名称字符串
+            method_name: 方法名称字符串
+            command_with_params: 完整的命令字符串（含参数）
+            args: 位置参数元组
+            kwargs: 关键字参数字典
+            connected_channels: 已连接通道名称列表（线程安全）
+
+        Returns:
+            None: 无返回值，结果通过日志显示
         """
-        向所有已连接通道发送指令
+        status = self.ipTable.item(row, 3).text()
+        if status != '已连接':
+            return
+        
+        channel_name = self.ipTable.item(row, 0).text()
+        
+        if row in self.rpc_clients:
+            client = self.rpc_clients[row]
+            try:
+                result = client.send_command(service_name, method_name, *args, **kwargs)
+                if isinstance(result, dict):
+                    result_str = json.dumps(result, indent=2, ensure_ascii=False)
+                elif isinstance(result, (list, tuple)):
+                    result_str = json.dumps(result, indent=2, ensure_ascii=False)
+                else:
+                    result_str = str(result)
+                if self.sequence == True:
+                    self.log_message(f'[{channel_name}] recv:{result_str}')
+                    connected_channels.append(channel_name)
+                else:
+                    self.log_message(f'[{channel_name}] send:{command_with_params} \n recv:{result_str}')
+                    connected_channels.append(channel_name)
+            except Exception as e:
+                self.log_message(f'[{channel_name}] 发送命令失败: {command_with_params}，错误: {str(e)}')
+        else:
+            self.log_message(f'[{channel_name}] RPC客户端未找到，请重新连接')
+    
+    def send_command_to_all_channels(self, service_name, method_name, command_with_params, *args, **kwargs):
+        """向所有已连接的通道发送RPC命令（多线程）。
+
+        遍历所有通道，使用多线程并行向状态为'已连接'的通道发送命令，
+        所有通道同时发送，提高整体响应速度。使用互斥锁保证日志输出不会错行。
+
+        Args:
+            service_name: 服务名称字符串
+            method_name: 方法名称字符串
+            command_with_params: 完整的命令字符串（含参数）
+            *args: 位置参数列表
+            **kwargs: 关键字参数字典
+
+        Returns:
+            None: 无返回值，结果通过日志显示
+
+        Warning:
+            序列执行模式下(self.sequence=True)只记录响应，不记录发送内容
+            使用多线程并行发送，日志顺序可能与通道顺序不一致，但不会错行
         """
         connected_channels = []
+        threads = []
+        
         for row in range(self.ipTable.rowCount()):
             status = self.ipTable.item(row, 3).text()
             if status == '已连接':
-                channel_name = self.ipTable.item(row, 0).text()
-                
-                if row in self.rpc_clients:
-                    client = self.rpc_clients[row]
-                    try:
-                        result = client.send_command(service_name, method_name, *args, **kwargs)
-                        if isinstance(result, dict):
-                            result_str = json.dumps(result, indent=2, ensure_ascii=False)
-                        elif isinstance(result, (list, tuple)):
-                            result_str = json.dumps(result, indent=2, ensure_ascii=False)
-                        else:
-                            result_str = str(result)
-                        if self.sequence == True:
-                            self.log_message(f'[{channel_name}] recv:{result_str}')
-                            connected_channels.append(channel_name)
-                        else:
-                            self.log_message(f'[{channel_name}] send:{command_with_params} \n recv:{result_str}')
-                            connected_channels.append(channel_name)
-                    except Exception as e:
-                        self.log_message(f'[{channel_name}] 发送命令失败: {command_with_params}，错误: {str(e)}')
-                else:
-                    self.log_message(f'[{channel_name}] RPC客户端未找到，请重新连接')
+                thread = threading.Thread(
+                    target=self._send_command_to_channel,
+                    args=(row, service_name, method_name, command_with_params, args, kwargs, connected_channels),
+                    daemon=True
+                )
+                threads.append(thread)
+                thread.start()
+        
+        for thread in threads:
+            thread.join()
         
         if not connected_channels:
             self.log_message('没有已连接的通道')
     
     def log_message(self, message):
-        self.logText.insertPlainText(message + '\n')
-        self.logText.ensureCursorVisible()
-        from utils.logger import init_logger
-        logger = init_logger(name="MixToolLogger", log_file="mixTool.log")
-        logger.info(message)
+        """记录日志消息到界面和文件。
+
+        在日志文本框中显示消息，并同时写入日志文件。
+        使用互斥锁保证多线程环境下日志输出的原子性，避免错行。
+
+        Args:
+            message: 日志消息字符串
+
+        Example:
+            >>> self.log_message('通道连接成功')
+
+        Warning:
+            此方法线程安全，使用互斥锁保护日志输出
+        """
+        with self.log_mutex:
+            self.logText.insertPlainText(message + '\n')
+            self.logText.ensureCursorVisible()
+            from utils.logger import init_logger
+            logger = init_logger(name="MixToolLogger", log_file="mixTool.log")
+            logger.info(message)
     
     def show_config_channel_dialog(self):
-        """
-        显示配置通道的弹出窗口
+        """显示通道配置对话框。
+
+        提供批量配置通道数量、起始IP、起始端口和端口递增步长的功能。
+        支持IP地址按Slot编号自动计算。
         """
         dialog = QDialog(self)
         dialog.setWindowTitle('配置通道')
@@ -218,7 +316,20 @@ class MIXDebugPlugin(QMainWindow):
         
         dialog.setLayout(layout)
         
-        def get_ip(slot, startNum=33, setp=1,start_num_head="111.111.111."):
+        def get_ip(slot, startNum=33, setp=1, start_num_head="111.111.111."):
+            """计算Slot对应的IP地址。
+
+            根据Slot编号和起始IP计算实际IP地址，支持端口递增。
+
+            Args:
+                slot: Slot编号
+                startNum: 起始IP最后一段数字，默认33
+                setp: 步长，默认1
+                start_num_head: IP地址前三段，默认"111.111.111."
+
+            Returns:
+                str: 完整的IP地址字符串
+            """
             sw1 = str(slot)[-1]
             sw2 = ('00' + str(slot))[-2]
             add_num = int(sw2) * 16 + int(sw1)
@@ -229,6 +340,10 @@ class MIXDebugPlugin(QMainWindow):
             return ip_address
         
         def on_ok():
+            """配置确认处理函数。
+
+            根据用户输入批量创建通道配置，并保存到配置文件。
+            """
             count = count_spin.value()
             start_ip = ip_input.text()
             start_port = int(port_input.text())
@@ -270,8 +385,15 @@ class MIXDebugPlugin(QMainWindow):
         dialog.exec()
     
     def save_commands_info(self, commands_info):
-        """
-        保存命令信息到json文件
+        """保存命令信息到JSON文件。
+
+        将从设备获取的所有命令信息持久化存储，供命令自动补全使用。
+
+        Args:
+            commands_info: 命令信息字典，结构为 {service: {method: info}}
+
+        Returns:
+            None: 无返回值，成功或失败通过日志通知
         """
         from utils.config import config_manager
         config_dir = config_manager.get_config_dir()
@@ -285,8 +407,10 @@ class MIXDebugPlugin(QMainWindow):
             self.log_message(f"保存命令信息失败: {str(e)}")
     
     def load_commands_info(self):
-        """
-        从json文件加载命令信息
+        """从JSON文件加载命令信息。
+
+        Returns:
+            dict: 命令信息字典，结构为 {service: {method: info}}，文件不存在时返回空字典
         """
         from utils.config import config_manager
         config_dir = config_manager.get_config_dir()
@@ -301,8 +425,10 @@ class MIXDebugPlugin(QMainWindow):
         return {}
     
     def update_command_hints(self):
-        """
-        更新命令提示
+        """更新命令自动补全提示列表。
+
+        从配置文件加载命令信息，生成 service.method 格式的命令列表，
+        用于命令输入框的自动补全功能。
         """
         commands_info = self.load_commands_info()
         
@@ -315,8 +441,18 @@ class MIXDebugPlugin(QMainWindow):
         self.cmd_model.setStringList(commands)
     
     def connect_channel(self, row):
-        """
-        连接通道
+        """连接或断开指定行的通道。
+
+        根据当前连接状态执行连接或断开操作。连接成功后自动获取命令列表。
+
+        Args:
+            row: 通道在表格中的行号，范围为0到行数-1
+
+        Returns:
+            None: 无返回值，结果通过日志和界面状态显示
+
+        Example:
+            >>> self.connect_channel(0)  # 连接第一行通道
         """
         channel_name = self.ipTable.item(row, 0).text()
         ip = self.ipTable.item(row, 1).text()
@@ -352,8 +488,12 @@ class MIXDebugPlugin(QMainWindow):
             connect_btn.setText('连接')
     
     def batch_connect(self):
-        """
-        批量连接选中的通道
+        """批量连接选中的通道。
+
+        遍历表格中所有被选中的单元格，提取行号后批量执行连接操作。
+
+        Returns:
+            None: 无返回值，未选中通道时通过日志提示
         """
         selected_rows = set()
         for item in self.ipTable.selectedItems():
@@ -369,8 +509,12 @@ class MIXDebugPlugin(QMainWindow):
                 self.connect_channel(row)
     
     def batch_disconnect(self):
-        """
-        批量断开选中的通道
+        """批量断开选中的通道。
+
+        遍历表格中所有被选中的单元格，提取行号后批量执行断开操作。
+
+        Returns:
+            None: 无返回值，未选中通道时通过日志提示
         """
         selected_rows = set()
         for item in self.ipTable.selectedItems():
@@ -386,8 +530,10 @@ class MIXDebugPlugin(QMainWindow):
                 self.connect_channel(row)
     
     def load_channels_from_config(self):
-        """
-        从配置文件加载通道配置
+        """从配置文件加载通道配置。
+
+        清空现有通道列表，从配置管理器读取保存的通道信息并重建表格。
+        加载期间暂时断开单元格修改信号以避免重复保存。
         """
         from utils.config import config_manager
         
@@ -414,8 +560,12 @@ class MIXDebugPlugin(QMainWindow):
         self.ipTable.cellChanged.connect(self.on_cell_changed)
     
     def save_channels_to_config(self):
-        """
-        保存通道配置到配置文件
+        """保存通道配置到配置文件。
+
+        遍历表格中所有行，收集通道名称、IP地址和端口信息，保存到配置文件。
+
+        Returns:
+            None: 无返回值，成功或失败通过日志通知
         """
         from utils.config import config_manager
         
@@ -444,8 +594,15 @@ class MIXDebugPlugin(QMainWindow):
             self.log_message('保存通道配置失败')
     
     def select_command(self, command):
-        """
-        选择命令
+        """选择命令并填充到输入框。
+
+        将选中的命令同时设置到命令输入框和参数输入框，并显示命令详情。
+
+        Args:
+            command: 命令字符串或QListWidgetItem对象
+
+        Example:
+            >>> self.select_command('system.version')
         """
         if hasattr(command, 'text'):
             command = command.text()
@@ -455,8 +612,15 @@ class MIXDebugPlugin(QMainWindow):
         self.show_command_doc(command)
     
     def show_command_doc(self, command):
-        """
-        显示命令详细说明
+        """显示命令的详细说明文档。
+
+        从命令信息中提取命令说明和参数列表，格式化后显示在信息面板中。
+
+        Args:
+            command: 命令字符串，格式为 service.method
+
+        Returns:
+            None: 无返回值，结果显示在cmdInfoText控件中
         """
         commands_info = self.load_commands_info()
         
@@ -491,16 +655,18 @@ class MIXDebugPlugin(QMainWindow):
             self.cmdInfoText.setPlainText('命令格式错误')
     
     def copy_command_to_param(self):
-        """
-        将命令从cmdInput复制到paramInput
+        """将命令从cmdInput复制到paramInput。
+
+        当用户在命令输入框中按回车键时触发，方便用户在参数输入框中继续编辑。
         """
         command = self.cmdInput.text()
         if command:
             self.paramInput.setText(command)
     
     def load_history_from_config(self):
-        """
-        从配置文件加载历史指令
+        """从配置文件加载历史指令。
+
+        读取保存的历史命令列表，逐个添加到历史记录列表控件中。
         """
         from utils.config import config_manager
         history = config_manager.get_history()
@@ -508,8 +674,15 @@ class MIXDebugPlugin(QMainWindow):
             self.historyList.addItem(command)
     
     def add_to_history(self, command):
-        """
-        将命令添加到历史记录
+        """将命令添加到历史记录。
+
+        避免重复添加相同命令，保持历史记录最多50条，并保存到配置文件。
+
+        Args:
+            command: 要添加的命令字符串
+
+        Warning:
+            历史记录最大容量为50条，超出后自动删除最旧的记录
         """
         from utils.config import config_manager
         
@@ -529,16 +702,24 @@ class MIXDebugPlugin(QMainWindow):
         config_manager.save_history(history)
     
     def select_history_command(self, item):
-        """
-        选择历史命令并发送
+        """选择历史命令并立即发送。
+
+        双击历史命令时触发，自动填充到参数输入框并执行发送。
+
+        Args:
+            item: QListWidgetItem对象，代表选中的历史命令
         """
         command = item.text()
         self.paramInput.setText(command)
         self.send_command()
     
     def show_history_context_menu(self, position):
-        """
-        显示历史命令的右键菜单
+        """显示历史命令列表的右键菜单。
+
+        提供清空所有、添加到序列、删除等操作选项。
+
+        Args:
+            position: 右键点击的位置（相对于控件）
         """
         menu = QMenu()
         
@@ -570,8 +751,12 @@ class MIXDebugPlugin(QMainWindow):
             self.log_message(f"已添加指令到序列: {command}")
     
     def show_log_context_menu(self, pos):
-        """
-        显示日志右键菜单
+        """显示日志区域的右键菜单。
+
+        提供清空所有日志内容的选项。
+
+        Args:
+            pos: 右键点击的位置（相对于控件）
         """
         menu = QMenu()
         clear_all_action = menu.addAction("清空所有内容")
@@ -582,8 +767,9 @@ class MIXDebugPlugin(QMainWindow):
             self.clear_log()
     
     def clear_history(self):
-        """
-        清空所有历史指令
+        """清空所有历史指令。
+
+        清空界面上的历史记录列表，并同步清空配置文件中的记录。
         """
         from utils.config import config_manager
         self.historyList.clear()
@@ -591,14 +777,19 @@ class MIXDebugPlugin(QMainWindow):
         self.log_message("已清空所有历史指令")
     
     def clear_log(self):
-        """
-        清空所有日志
+        """清空所有日志内容。
+
+        仅清空界面显示，不影响日志文件。
         """
         self.logText.clear()
     
     def open_sequence_file(self):
-        """
-        打开序列组原始文件
+        """打开序列组原始文件。
+
+        使用系统默认程序打开最近加载的序列组CSV文件。
+
+        Returns:
+            None: 无返回值，未加载序列组时通过日志提示
         """
         from PyQt6.QtCore import QUrl
         from PyQt6.QtGui import QDesktopServices
@@ -614,8 +805,12 @@ class MIXDebugPlugin(QMainWindow):
             self.log_message("请先加载一个序列组")
     
     def show_sequence_context_menu(self, position):
-        """
-        显示序列列表的右键菜单
+        """显示序列列表的右键菜单。
+
+        提供添加延迟、添加暂停、清空序列、保存/加载序列组、修改、删除等操作。
+
+        Args:
+            position: 右键点击的位置（相对于控件）
         """
         menu = QMenu()
         
@@ -655,8 +850,12 @@ class MIXDebugPlugin(QMainWindow):
             self.log_message("已从序列中删除指令")
     
     def show_channel_context_menu(self, pos):
-        """
-        显示通道列表右键菜单
+        """显示通道列表的右键菜单。
+
+        提供新增一行、配置通道、批量连接、批量断开等操作。
+
+        Args:
+            pos: 右键点击的位置（相对于控件）
         """
         menu = QMenu()
         
@@ -675,8 +874,13 @@ class MIXDebugPlugin(QMainWindow):
         menu.exec(self.ipTable.mapToGlobal(pos))
     
     def on_cell_changed(self, row, column):
-        """
-        单元格修改完成事件，自动保存到配置文件
+        """单元格修改完成事件处理。
+
+        当表格单元格内容修改时自动保存配置，并在IP或端口修改时重置连接状态。
+
+        Args:
+            row: 修改的行号
+            column: 修改的列号（1=IP地址，2=端口）
         """
         self.save_channels_to_config()
         
@@ -684,8 +888,9 @@ class MIXDebugPlugin(QMainWindow):
             self.ipTable.setItem(row, 3, QTableWidgetItem('未连接'))
     
     def add_channel_row(self):
-        """
-        新增一行通道配置
+        """新增一行通道配置。
+
+        在表格末尾添加一行新的通道配置，自动生成Slot名称和默认端口。
         """
         row = self.ipTable.rowCount()
         self.ipTable.insertRow(row)
@@ -705,8 +910,15 @@ class MIXDebugPlugin(QMainWindow):
         self.log_message(f'已新增通道: Slot{row+1}')
     
     def modify_sequence_item(self, item):
-        """
-        修改序列项
+        """修改序列列表中的项。
+
+        根据项的类型（命令、延迟、暂停）显示不同的编辑对话框。
+
+        Args:
+            item: QListWidgetItem对象，代表要修改的序列项
+
+        Returns:
+            None: 无返回值，用户取消编辑时不做任何修改
         """
         text = item.text()
         row = self.sequenceList.row(item)
@@ -734,8 +946,12 @@ class MIXDebugPlugin(QMainWindow):
                 self.log_message(f"已修改序列中的暂停: {new_message}")
     
     def add_delay_to_sequence(self):
-        """
-        添加延迟到序列列表
+        """添加延迟到序列列表。
+
+        弹出对话框让用户输入延迟时间（毫秒），范围1-30000ms。
+
+        Returns:
+            None: 无返回值，用户取消时不添加
         """
         from PyQt6.QtWidgets import QInputDialog
         delay, ok = QInputDialog.getInt(self, '添加延迟', '请输入延迟时间（毫秒）:', 1000, 1, 30000)
@@ -746,8 +962,12 @@ class MIXDebugPlugin(QMainWindow):
             self.log_message(f"已添加延迟到序列: {delay}ms")
     
     def add_pause_to_sequence(self):
-        """
-        添加暂停到序列列表
+        """添加暂停到序列列表。
+
+        弹出对话框让用户输入暂停提示信息，执行到此时会等待用户确认。
+
+        Returns:
+            None: 无返回值，用户取消时不添加
         """
         from PyQt6.QtWidgets import QInputDialog
         message, ok = QInputDialog.getText(self, '添加暂停', '请输入暂停提示信息:', text='执行到此处，是否继续？')
@@ -758,8 +978,13 @@ class MIXDebugPlugin(QMainWindow):
             self.log_message(f"已添加暂停到序列: {message}")
     
     def execute_sequence(self):
-        """
-        执行指令序列
+        """执行指令序列。
+
+        按顺序执行序列列表中所有已勾选的项，支持命令、延迟和暂停三种类型。
+        延迟使用QTimer实现非阻塞等待，暂停会弹出确认对话框。
+
+        Warning:
+            执行期间会阻塞UI线程，不建议在序列中添加过长的延迟
         """
         if not self.rpc_clients:
             self.log_message('没有已连接的通道，请先连接通道')
@@ -838,15 +1063,20 @@ class MIXDebugPlugin(QMainWindow):
         self.log_message('指令序列执行完成')
     
     def clear_sequence(self):
-        """
-        清空序列
+        """清空序列列表。
+
+        移除序列列表中的所有项。
         """
         self.sequenceList.clear()
         self.log_message('序列已清空')
     
     def save_sequence_group(self):
-        """
-        保存当前序列组到CSV文件
+        """保存当前序列组到CSV文件。
+
+        将序列列表中的所有项（命令、延迟、暂停）保存到配置目录下的CSV文件。
+
+        Returns:
+            None: 无返回值，序列为空或用户取消时不保存
         """
         from utils.config import config_manager
         
@@ -886,8 +1116,12 @@ class MIXDebugPlugin(QMainWindow):
             self.log_message(f'保存序列组失败: {str(e)}')
     
     def load_sequence_group(self):
-        """
-        加载已保存的序列组
+        """加载已保存的序列组。
+
+        从配置目录中查找CSV文件，让用户选择后加载到序列列表中。
+
+        Returns:
+            None: 无返回值，未找到文件或用户取消时不加载
         """
         from utils.config import config_manager
         

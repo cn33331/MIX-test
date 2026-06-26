@@ -4,8 +4,8 @@ import csv
 import importlib
 import numpy as np
 from PyQt6 import QtCore, QtGui, QtWidgets
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
-                             QButtonGroup, QLineEdit, QLabel, QDialog, 
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
+                             QButtonGroup, QLineEdit, QLabel, QDialog,
                              QSizePolicy, QCompleter, QMessageBox, QApplication,
                              QStylePainter, QStyleOptionFrame, QFileDialog)
 from PyQt6.QtCore import Qt, QPointF, QRectF
@@ -15,49 +15,84 @@ import FFT
 import code_to_mvolt
 from PyQt6.uic import loadUi
 
-# 添加插件目录到路径
 PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, PLUGIN_DIR)
 
+
 def get_resource_path(relative_path):
-    """
-    获取资源文件的绝对路径（插件目录在外部，不从MEIPASS加载）
+    """获取资源文件的绝对路径。
+
+    插件目录在外部，不从 MEIPASS 加载，直接拼接插件目录与相对路径。
+
+    Args:
+        relative_path (str): 资源文件的相对路径。
+
+    Returns:
+        str: 资源文件的绝对路径。
+
+    Example:
+        >>> ui_path = get_resource_path('main.ui')
+        >>> print(ui_path)
     """
     return os.path.join(PLUGIN_DIR, relative_path)
 
 
 def load_external_file(file_name):
-    """
-    动态加载外部文件（可执行文件所在目录下的file_name）
-    :param file_name: 要加载的外部文件名（如config.py）
-    :return: 加载后的模块对象（可像正常import一样使用）
+    """动态加载外部Python文件。
+
+    从可执行文件所在目录加载指定的Python文件作为模块，
+    支持热修改（修改后重启程序即可生效）。
+
+    Args:
+        file_name (str): 要加载的外部文件名（如 config.py）。
+
+    Returns:
+        module: 加载后的模块对象，可像正常 import 一样使用。
+
+    Raises:
+        FileNotFoundError: 当指定文件不存在时抛出。
+
+    Example:
+        >>> config = load_external_file('config.py')
+        >>> print(config.SETTINGS)
     """
     if getattr(sys, 'frozen', False):
         exe_dir = os.path.dirname(sys.executable)
     else:
         exe_dir = os.path.dirname(os.path.abspath(__file__))
-    
+
     file_path = os.path.join(exe_dir, file_name)
-    
+
     if not os.path.exists(file_path):
         raise FileNotFoundError(
             f"未找到外部文件：{file_name}\n"
             f"请将{file_name}放在可执行文件所在目录：{exe_dir}"
         )
-    
+
     spec = importlib.util.spec_from_file_location(
         name=file_name[:-3],
         location=file_path
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    
+
     print(f"✅ 成功加载外部文件：{file_path}（修改后重启程序即可生效）")
     return module
 
+
 def enable_drag_drop(line_edit: QLineEdit):
-    """
-    使给定的 QLineEdit 具有拖放功能。
+    """使给定的 QLineEdit 控件具有文件拖放功能。
+
+    为输入框添加 dragEnterEvent、dragMoveEvent 和 dropEvent 处理，
+    支持将文件从文件管理器拖放到输入框中自动填充路径。
+
+    Args:
+        line_edit (QLineEdit): 要启用拖放功能的输入框对象。
+
+    Example:
+        >>> from PyQt6.QtWidgets import QLineEdit
+        >>> edit = QLineEdit()
+        >>> enable_drag_drop(edit)
     """
     def dragEnterEvent(event):
         if event.mimeData().hasUrls():
@@ -88,82 +123,137 @@ def enable_drag_drop(line_edit: QLineEdit):
 
 
 def decimate_data(x, y, max_points=10000):
-    """
-    数据降采样函数：将大数据集降采样到指定的最大点数
-    使用LTTB算法（Largest Triangle Three Buckets）保持视觉特征
+    """数据降采样函数，使用LTTB算法保持视觉特征。
+
+    使用 Largest Triangle Three Buckets 算法将大数据集降采样到
+    指定的最大点数，同时尽可能保留数据的视觉特征。
+
+    Args:
+        x (numpy.ndarray or list): X轴数据数组。
+        y (numpy.ndarray or list): Y轴数据数组。
+        max_points (int, optional): 降采样后的最大点数。默认值为 10000。
+
+    Returns:
+        tuple: 包含以下元素的元组：
+            - result_x (numpy.ndarray): 降采样后的X轴数据。
+            - result_y (numpy.ndarray): 降采样后的Y轴数据。
+
+    Example:
+        >>> x = np.linspace(0, 1, 100000)
+        >>> y = np.sin(x * 2 * np.pi)
+        >>> x_down, y_down = decimate_data(x, y, max_points=1000)
+        >>> print(len(x_down))
+        1000
     """
     n = len(x)
     if n <= max_points:
         return x, y
-    
-    # 计算步长
+
     step = n / max_points
     result_x = []
     result_y = []
-    
-    # 添加第一个点
+
     result_x.append(x[0])
     result_y.append(y[0])
-    
+
     for i in range(1, max_points - 1):
-        # 当前桶的范围
         bucket_start = int((i - 1) * step)
         bucket_end = int(i * step)
         next_bucket_end = int((i + 1) * step)
-        
-        # 找到桶内的最大三角形面积点
+
         max_area = -1
         max_idx = bucket_start
-        
-        # 前一个点
+
         prev_x = result_x[-1]
         prev_y = result_y[-1]
-        
-        # 下一个桶的平均点（作为三角形的第三个点）
+
         next_avg_x = np.mean(x[min(bucket_end, n-1):min(next_bucket_end, n-1)])
         next_avg_y = np.mean(y[min(bucket_end, n-1):min(next_bucket_end, n-1)])
-        
+
         for j in range(bucket_start, min(bucket_end, n-1)):
-            # 计算三角形面积（使用简化公式，忽略1/2因子）
-            area = abs((x[j] - prev_x) * (next_avg_y - prev_y) - 
+            area = abs((x[j] - prev_x) * (next_avg_y - prev_y) -
                        (next_avg_x - prev_x) * (y[j] - prev_y))
             if area > max_area:
                 max_area = area
                 max_idx = j
-        
+
         result_x.append(x[max_idx])
         result_y.append(y[max_idx])
-    
-    # 添加最后一个点
+
     result_x.append(x[-1])
     result_y.append(y[-1])
-    
+
     return np.array(result_x), np.array(result_y)
 
 
 class ZoomMode:
-    WIDTH = 0      # 仅宽度缩放
-    HEIGHT = 1     # 仅高度缩放
-    CENTER = 2     # 中心缩放（默认）
+    """缩放模式常量定义类。
+
+    定义绘图控件支持的三种缩放模式，用于控制滚轮缩放时的行为。
+
+    Attributes:
+        WIDTH (int): 仅宽度缩放模式，值为 0。
+        HEIGHT (int): 仅高度缩放模式，值为 1。
+        CENTER (int): 中心缩放模式（宽高同时缩放），值为 2。
+
+    Example:
+        >>> mode = ZoomMode.WIDTH
+        >>> print(mode)
+        0
+    """
+    WIDTH = 0
+    HEIGHT = 1
+    CENTER = 2
 
 
 class PlotWidget(QWidget):
-    """轻量的绘图控件，使用QPainter绘制，支持平移和缩放"""
-    
+    """轻量级绘图控件，使用 QPainter 绘制，支持平移和缩放。
+
+    基于 Qt 的 QWidget 自定义控件，直接使用 QPainter 进行绘制，
+    支持鼠标拖动平移、滚轮缩放、键盘快捷操作等功能。
+
+    Attributes:
+        x_data (numpy.ndarray): X轴数据数组。
+        y_data (numpy.ndarray): Y轴数据数组。
+        x_label (str): X轴标签文字。
+        y_label (str): Y轴标签文字。
+        title (str): 图表标题。
+        axv_line (tuple or None): 垂直标记线信息 (x, color, label)。
+        x_min_view (float): X轴视图左边界。
+        x_max_view (float): X轴视图右边界。
+        y_min_view (float): Y轴视图下边界。
+        y_max_view (float): Y轴视图上边界。
+        is_dragging (bool): 是否正在拖动视图。
+        last_pos (QPointF): 上一次鼠标位置。
+        zoom_mode (int): 当前缩放模式，见 ZoomMode 类。
+
+    Example:
+        >>> plot = PlotWidget()
+        >>> plot.set_data([1, 2, 3], [4, 5, 6])
+        >>> plot.set_labels("时间", "电压")
+        >>> plot.show()
+    """
+
     def __init__(self, parent=None):
+        """初始化 PlotWidget 控件。
+
+        设置初始数据、视图范围、鼠标样式和焦点策略等。
+
+        Args:
+            parent (QWidget, optional): 父窗口对象。默认值为 None。
+        """
         super().__init__(parent)
         self.x_data = []
         self.y_data = []
         self.x_label = "X"
         self.y_label = "Y"
         self.title = ""
-        self.axv_line = None  # (x, color, label)
+        self.axv_line = None
         self.setMinimumSize(600, 400)
         self.setBackgroundRole(QtGui.QPalette.ColorRole.Base)
         self.setAutoFillBackground(True)
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)  # 启用键盘焦点
-        
-        # 平移和缩放相关变量
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
         self.x_min_view = None
         self.x_max_view = None
         self.y_min_view = None
@@ -171,23 +261,42 @@ class PlotWidget(QWidget):
         self.is_dragging = False
         self.last_pos = QPointF()
         self.setCursor(Qt.CursorShape.CrossCursor)
-        
-        # 缩放模式（默认使用宽度缩放）
+
         self.zoom_mode = ZoomMode.WIDTH
-        
+
     def get_zoom_mode_name(self):
-        """获取当前缩放模式名称"""
+        """获取当前缩放模式的中文名称。
+
+        Returns:
+            str: 当前缩放模式的名称，可能为 "宽度缩放"、"高度缩放" 或 "中心缩放"。
+
+        Example:
+            >>> plot = PlotWidget()
+            >>> print(plot.get_zoom_mode_name())
+            宽度缩放
+        """
         if self.zoom_mode == ZoomMode.WIDTH:
             return "宽度缩放"
         elif self.zoom_mode == ZoomMode.HEIGHT:
             return "高度缩放"
         else:
             return "中心缩放"
-        
+
     def set_data(self, x, y):
+        """设置绘图数据并初始化视图范围。
+
+        将输入数据转换为 numpy 数组，并自动计算数据范围作为初始视图。
+
+        Args:
+            x (array_like): X轴数据。
+            y (array_like): Y轴数据。
+
+        Example:
+            >>> plot = PlotWidget()
+            >>> plot.set_data([0, 1, 2], [0, 1, 0])
+        """
         self.x_data = np.array(x)
         self.y_data = np.array(y)
-        # 初始化视图范围
         if len(self.x_data) > 0:
             self.x_min_view = np.min(self.x_data)
             self.x_max_view = np.max(self.x_data)
@@ -195,26 +304,72 @@ class PlotWidget(QWidget):
             self.y_min_view = np.min(self.y_data)
             self.y_max_view = np.max(self.y_data)
         self.update()
-        
+
     def set_labels(self, x_label, y_label):
+        """设置坐标轴标签。
+
+        Args:
+            x_label (str): X轴标签文字。
+            y_label (str): Y轴标签文字。
+
+        Example:
+            >>> plot = PlotWidget()
+            >>> plot.set_labels("频率 (Hz)", "幅值 (dBm)")
+        """
         self.x_label = x_label
         self.y_label = y_label
         self.update()
-        
+
     def set_title(self, title):
+        """设置图表标题。
+
+        Args:
+            title (str): 图表标题文字。
+
+        Example:
+            >>> plot = PlotWidget()
+            >>> plot.set_title("波形图")
+        """
         self.title = title
         self.update()
-        
+
     def set_vertical_line(self, x, color=QColor(255, 165, 0), label=""):
+        """设置垂直标记线。
+
+        在指定X轴位置绘制一条垂直虚线，可附带标签说明。
+
+        Args:
+            x (float): 垂直线的X轴坐标位置。
+            color (QColor, optional): 线条颜色。默认值为橙色 QColor(255, 165, 0)。
+            label (str, optional): 标签文字。默认值为空字符串。
+
+        Example:
+            >>> from PyQt6.QtGui import QColor
+            >>> plot = PlotWidget()
+            >>> plot.set_vertical_line(1000, QColor(255, 0, 0), "目标频率")
+        """
         self.axv_line = (x, color, label)
         self.update()
-        
+
     def clear_vertical_line(self):
+        """清除垂直标记线。
+
+        Example:
+            >>> plot = PlotWidget()
+            >>> plot.clear_vertical_line()
+        """
         self.axv_line = None
         self.update()
-        
+
     def reset_view(self):
-        """重置视图为原始数据范围"""
+        """重置视图为原始数据范围。
+
+        将视图范围重置为数据的最大最小值，显示全部数据。
+
+        Example:
+            >>> plot = PlotWidget()
+            >>> plot.reset_view()
+        """
         if len(self.x_data) > 0:
             self.x_min_view = np.min(self.x_data)
             self.x_max_view = np.max(self.x_data)
@@ -222,255 +377,284 @@ class PlotWidget(QWidget):
             self.y_min_view = np.min(self.y_data)
             self.y_max_view = np.max(self.y_data)
         self.update()
-        
+
     def mousePressEvent(self, event):
+        """鼠标按下事件处理。
+
+        左键按下时开始拖动模式，记录鼠标位置并切换光标样式。
+
+        Args:
+            event (QMouseEvent): 鼠标事件对象。
+        """
         if event.button() == Qt.MouseButton.LeftButton:
             self.is_dragging = True
             self.last_pos = event.position()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
-            
+
     def mouseMoveEvent(self, event):
+        """鼠标移动事件处理。
+
+        在拖动模式下，根据鼠标移动距离平移视图。
+
+        Args:
+            event (QMouseEvent): 鼠标事件对象。
+        """
         if self.is_dragging and len(self.x_data) > 0:
             delta_x = event.position().x() - self.last_pos.x()
             delta_y = event.position().y() - self.last_pos.y()
-            
+
             margin = 60
             plot_width = self.width() - 2 * margin
             plot_height = self.height() - 2 * margin
-            
-            # 计算平移量（转换为数据坐标）
+
             x_range = self.x_max_view - self.x_min_view
             y_range = self.y_max_view - self.y_min_view
-            
+
             x_shift = -delta_x * x_range / plot_width
             y_shift = delta_y * y_range / plot_height
-            
-            # 更新视图范围
+
             self.x_min_view += x_shift
             self.x_max_view += x_shift
             self.y_min_view += y_shift
             self.y_max_view += y_shift
-            
+
             self.last_pos = event.position()
             self.update()
-            
+
     def mouseReleaseEvent(self, event):
+        """鼠标释放事件处理。
+
+        左键释放时结束拖动模式，恢复光标样式。
+
+        Args:
+            event (QMouseEvent): 鼠标事件对象。
+        """
         if event.button() == Qt.MouseButton.LeftButton:
             self.is_dragging = False
             self.setCursor(Qt.CursorShape.CrossCursor)
-            
+
     def wheelEvent(self, event):
+        """鼠标滚轮事件处理。
+
+        根据当前缩放模式，以鼠标位置为中心进行缩放。
+
+        Args:
+            event (QWheelEvent): 滚轮事件对象。
+        """
         if len(self.x_data) == 0:
             return
-            
-        # 获取鼠标位置对应的坐标
+
         margin = 60
         x = event.position().x()
         y = event.position().y()
-        
-        # 计算鼠标位置对应的归一化坐标
+
         plot_width = self.width() - 2 * margin
         plot_height = self.height() - 2 * margin
-        
+
         if plot_width <= 0 or plot_height <= 0:
             return
-            
+
         norm_x = (x - margin) / plot_width
         norm_y = (y - margin) / plot_height
-        
-        # 限制在有效范围内
+
         norm_x = max(0.0, min(1.0, norm_x))
         norm_y = max(0.0, min(1.0, norm_y))
-        
-        # 计算鼠标位置对应的实际数据值
+
         x_center = self.x_min_view + norm_x * (self.x_max_view - self.x_min_view)
         y_center = self.y_min_view + (1 - norm_y) * (self.y_max_view - self.y_min_view)
-        
-        # 缩放因子
+
         zoom_factor = 0.9 if event.angleDelta().y() > 0 else 1.1
-        
-        # 根据缩放模式执行不同的缩放策略
+
         x_range = self.x_max_view - self.x_min_view
         y_range = self.y_max_view - self.y_min_view
-        
+
         if self.zoom_mode == ZoomMode.WIDTH:
-            # 仅宽度缩放
             new_x_range = x_range * zoom_factor
             x_ratio = (x_center - self.x_min_view) / x_range
             self.x_min_view = x_center - x_ratio * new_x_range
             self.x_max_view = self.x_min_view + new_x_range
-            
+
         elif self.zoom_mode == ZoomMode.HEIGHT:
-            # 仅高度缩放
             new_y_range = y_range * zoom_factor
             y_ratio = (y_center - self.y_min_view) / y_range
             self.y_min_view = y_center - y_ratio * new_y_range
             self.y_max_view = self.y_min_view + new_y_range
-            
+
         else:
-            # 中心缩放（默认）
             new_x_range = x_range * zoom_factor
             new_y_range = y_range * zoom_factor
-            
-            # 保持鼠标位置不变
+
             x_ratio = (x_center - self.x_min_view) / x_range
             self.x_min_view = x_center - x_ratio * new_x_range
             self.x_max_view = self.x_min_view + new_x_range
-            
+
             y_ratio = (y_center - self.y_min_view) / y_range
             self.y_min_view = y_center - y_ratio * new_y_range
             self.y_max_view = self.y_min_view + new_y_range
-        
-        # 限制最小缩放范围
+
         min_x_range = (np.max(self.x_data) - np.min(self.x_data)) * 0.01
         min_y_range = (np.max(self.y_data) - np.min(self.y_data)) * 0.01
-        
+
         if self.x_max_view - self.x_min_view < min_x_range:
             self.x_max_view = self.x_min_view + min_x_range
         if self.y_max_view - self.y_min_view < min_y_range:
             self.y_max_view = self.y_min_view + min_y_range
-            
+
         self.update()
-        
+
     def keyPressEvent(self, event):
-        """键盘事件处理：快捷键支持"""
+        """键盘事件处理，支持多种快捷键。
+
+        支持的快捷键：
+        - +/-: 放大/缩小视图
+        - 方向键: 平移视图
+        - Home: 重置视图
+        - W/H/C: 切换缩放模式（宽度/高度/中心）
+
+        Args:
+            event (QKeyEvent): 键盘事件对象。
+        """
         if len(self.x_data) == 0:
             return
-            
-        zoom_factor = 0.8  # 键盘缩放因子
-        
+
+        zoom_factor = 0.8
+
         if event.key() == Qt.Key.Key_Plus or event.key() == Qt.Key.Key_Equal:
-            # 放大
             self.zoom(zoom_factor)
         elif event.key() == Qt.Key.Key_Minus or event.key() == Qt.Key.Key_Underscore:
-            # 缩小
             self.zoom(1 / zoom_factor)
         elif event.key() == Qt.Key.Key_Left:
-            # 向左平移
             self.pan(-0.1, 0)
         elif event.key() == Qt.Key.Key_Right:
-            # 向右平移
             self.pan(0.1, 0)
         elif event.key() == Qt.Key.Key_Up:
-            # 向上平移
             self.pan(0, 0.1)
         elif event.key() == Qt.Key.Key_Down:
-            # 向下平移
             self.pan(0, -0.1)
         elif event.key() == Qt.Key.Key_Home:
-            # 重置视图
             self.reset_view()
         elif event.key() == Qt.Key.Key_W:
-            # 切换到宽度缩放模式
             self.zoom_mode = ZoomMode.WIDTH
             print(f"缩放模式已切换为：宽度缩放")
         elif event.key() == Qt.Key.Key_H:
-            # 切换到高度缩放模式
             self.zoom_mode = ZoomMode.HEIGHT
             print(f"缩放模式已切换为：高度缩放")
         elif event.key() == Qt.Key.Key_C:
-            # 切换到中心缩放模式
             self.zoom_mode = ZoomMode.CENTER
             print(f"缩放模式已切换为：中心缩放")
         else:
             super().keyPressEvent(event)
-            
+
     def zoom(self, factor):
-        """根据当前缩放模式进行缩放"""
+        """根据当前缩放模式进行视图缩放。
+
+        以视图中心为基准进行缩放。
+
+        Args:
+            factor (float): 缩放因子。小于1表示放大，大于1表示缩小。
+
+        Example:
+            >>> plot = PlotWidget()
+            >>> plot.zoom(0.5)  # 放大一倍
+        """
         x_center = (self.x_min_view + self.x_max_view) / 2
         y_center = (self.y_min_view + self.y_max_view) / 2
-        
+
         x_range = self.x_max_view - self.x_min_view
         y_range = self.y_max_view - self.y_min_view
-        
+
         if self.zoom_mode == ZoomMode.WIDTH:
-            # 仅宽度缩放
             new_x_range = x_range * factor
             self.x_min_view = x_center - new_x_range / 2
             self.x_max_view = x_center + new_x_range / 2
         elif self.zoom_mode == ZoomMode.HEIGHT:
-            # 仅高度缩放
             new_y_range = y_range * factor
             self.y_min_view = y_center - new_y_range / 2
             self.y_max_view = y_center + new_y_range / 2
         else:
-            # 中心缩放（同时缩放宽度和高度）
             new_x_range = x_range * factor
             new_y_range = y_range * factor
             self.x_min_view = x_center - new_x_range / 2
             self.x_max_view = x_center + new_x_range / 2
             self.y_min_view = y_center - new_y_range / 2
             self.y_max_view = y_center + new_y_range / 2
-        
+
         self.update()
-        
+
     def pan(self, dx_ratio, dy_ratio):
-        """按比例平移视图"""
+        """按比例平移视图。
+
+        Args:
+            dx_ratio (float): X轴平移比例，相对于当前视图范围。
+            dy_ratio (float): Y轴平移比例，相对于当前视图范围。
+
+        Example:
+            >>> plot = PlotWidget()
+            >>> plot.pan(0.1, 0)  # 向右平移10%视图宽度
+        """
         x_range = self.x_max_view - self.x_min_view
         y_range = self.y_max_view - self.y_min_view
-        
+
         x_shift = x_range * dx_ratio
         y_shift = y_range * dy_ratio
-        
+
         self.x_min_view += x_shift
         self.x_max_view += x_shift
         self.y_min_view += y_shift
         self.y_max_view += y_shift
-        
+
         self.update()
-        
+
     def paintEvent(self, event):
+        """绘制事件处理，绘制整个图表。
+
+        绘制内容包括：标题、网格线、坐标轴、刻度标签、
+        垂直标记线和数据曲线。
+
+        Args:
+            event (QPaintEvent): 绘制事件对象。
+        """
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        # 边界留边距
+
         margin = 60
-        plot_rect = QRectF(margin, margin, 
-                          self.width() - 2 * margin, 
+        plot_rect = QRectF(margin, margin,
+                          self.width() - 2 * margin,
                           self.height() - 2 * margin)
-        
-        # 绘制标题
+
         if self.title:
             painter.setFont(QFont("Arial", 14, QFont.Weight.Bold))
-            painter.drawText(QRectF(0, 0, self.width(), margin), 
+            painter.drawText(QRectF(0, 0, self.width(), margin),
                            Qt.AlignmentFlag.AlignCenter, self.title)
-        
-        # 没有数据直接返回
+
         if len(self.x_data) < 2:
             return
-            
-        # 使用视图范围
+
         x_min, x_max = self.x_min_view, self.x_max_view
         y_min, y_max = self.y_min_view, self.y_max_view
-        
-        # 确保范围有效
+
         x_range = x_max - x_min
         y_range = y_max - y_min
         if x_range == 0:
             x_range = 1
         if y_range == 0:
             y_range = 1
-            
-        # 绘制网格
+
         painter.setPen(QColor(200, 200, 200))
         for i in range(5):
-            # 水平线
             y_pixel = plot_rect.top() + (i / 4.0) * plot_rect.height()
-            painter.drawLine(QPointF(plot_rect.left(), y_pixel), 
+            painter.drawLine(QPointF(plot_rect.left(), y_pixel),
                            QPointF(plot_rect.right(), y_pixel))
-            # 垂直线
             x_pixel = plot_rect.left() + (i / 4.0) * plot_rect.width()
-            painter.drawLine(QPointF(x_pixel, plot_rect.top()), 
+            painter.drawLine(QPointF(x_pixel, plot_rect.top()),
                            QPointF(x_pixel, plot_rect.bottom()))
-        
-        # 绘制坐标轴
+
         painter.setPen(QColor(0, 0, 0))
-        painter.drawLine(QPointF(plot_rect.left(), plot_rect.bottom()), 
+        painter.drawLine(QPointF(plot_rect.left(), plot_rect.bottom()),
                         QPointF(plot_rect.right(), plot_rect.bottom()))
-        painter.drawLine(QPointF(plot_rect.left(), plot_rect.top()), 
+        painter.drawLine(QPointF(plot_rect.left(), plot_rect.top()),
                         QPointF(plot_rect.left(), plot_rect.bottom()))
-        
-        # 绘制轴线标签
+
         painter.setFont(QFont("Arial", 10))
         painter.drawText(QRectF(0, plot_rect.bottom(), plot_rect.left(), 30),
                         Qt.AlignmentFlag.AlignCenter, self.x_label)
@@ -480,30 +664,43 @@ class PlotWidget(QWidget):
         painter.drawText(QRectF(-50, -15, 100, 30),
                         Qt.AlignmentFlag.AlignCenter, self.y_label)
         painter.restore()
-        
-        # 绘制刻度
+
         for i in range(5):
             x_val = x_min + (i / 4.0) * (x_max - x_min)
             x_pixel = plot_rect.left() + (i / 4.0) * plot_rect.width()
             painter.drawText(QPointF(x_pixel - 30, plot_rect.bottom() + 20),
                            self.format_number(x_val))
-            
+
             y_val = y_max - (i / 4.0) * (y_max - y_min)
             y_pixel = plot_rect.top() + (i / 4.0) * plot_rect.height()
             painter.drawText(QPointF(5, y_pixel + 5),
                            self.format_number(y_val))
-        
-        # 绘制垂直线和数据曲线
+
         self.paintEventPart2(painter, plot_rect, x_min, x_max, y_min, y_max)
-            
+
     def format_number(self, num):
-        """格式化数字，避免科学计数法，显示完整数据"""
+        """格式化数字显示，避免科学计数法。
+
+        根据数值大小选择合适的小数位数，使数据更易读。
+
+        Args:
+            num (float): 待格式化的数字。
+
+        Returns:
+            str: 格式化后的数字字符串。
+
+        Example:
+            >>> plot = PlotWidget()
+            >>> plot.format_number(1234.567)
+            '1234.567'
+            >>> plot.format_number(0.000123)
+            '0.000123'
+        """
         if num == 0:
             return "0"
-        
-        # 根据数值大小选择合适的显示格式
+
         abs_num = abs(num)
-        
+
         if abs_num >= 1000000:
             return f"{num:.1f}"
         elif abs_num >= 1000:
@@ -516,14 +713,24 @@ class PlotWidget(QWidget):
             return f"{num:.9f}"
         else:
             return f"{num:.12f}"
-    
+
     def paintEventPart2(self, painter, plot_rect, x_min, x_max, y_min, y_max):
-        """绘制垂直线和数据曲线（分离出来避免代码过长）"""
-        # 计算范围
+        """绘制垂直线和数据曲线（paintEvent 的第二部分）。
+
+        为避免 paintEvent 函数过长，将垂直线和数据曲线的绘制
+        分离到此函数中。
+
+        Args:
+            painter (QPainter): 绘图对象。
+            plot_rect (QRectF): 绘图区域矩形。
+            x_min (float): X轴视图最小值。
+            x_max (float): X轴视图最大值。
+            y_min (float): Y轴视图最小值。
+            y_max (float): Y轴视图最大值。
+        """
         x_range = x_max - x_min
         y_range = y_max - y_min
-        
-        # 绘制垂直线（标记点）
+
         if self.axv_line:
             axv_x, axv_color, axv_label = self.axv_line
             if x_min <= axv_x <= x_max:
@@ -532,23 +739,20 @@ class PlotWidget(QWidget):
                 painter.setPen(QPen(axv_color, 2, Qt.PenStyle.DashLine))
                 painter.drawLine(QPointF(pixel_x, plot_rect.top()),
                                 QPointF(pixel_x, plot_rect.bottom()))
-                
+
                 if axv_label:
                     painter.setPen(axv_color)
                     painter.drawText(QPointF(pixel_x + 5, plot_rect.top() + 20),
                                    axv_label)
-        
-        # 绘制数据曲线（降采样后绘制，提升性能）
+
         painter.setPen(QPen(QColor(30, 144, 255), 1.5))
-        
-        # 筛选在当前视图范围内的数据点
+
         mask = (self.x_data >= x_min - x_range * 0.1) & (self.x_data <= x_max + x_range * 0.1)
         visible_x = self.x_data[mask]
         visible_y = self.y_data[mask]
-        
-        # 降采样到合适的点数
+
         downsampled_x, downsampled_y = decimate_data(visible_x, visible_y, max_points=5000)
-        
+
         points = []
         for x_val, y_val in zip(downsampled_x, downsampled_y):
             if x_min <= x_val <= x_max:
@@ -557,94 +761,119 @@ class PlotWidget(QWidget):
                 px = plot_rect.left() + norm_x * plot_rect.width()
                 py = plot_rect.top() + norm_y * plot_rect.height()
                 points.append(QPointF(px, py))
-        
+
         if len(points) > 1:
             polygon = QPolygonF(points)
             painter.drawPolyline(polygon)
 
 
 class WaveformWindow(QDialog):
+    """波形显示窗口对话框。
+
+    包含 PlotWidget 绘图控件和控制按钮，用于显示波形图或频谱图。
+    支持切换缩放模式、重置视图、保存图片等功能。
+
+    Attributes:
+        plot_widget (PlotWidget): 绘图控件对象。
+        width_zoom_btn (QPushButton): 宽度缩放按钮。
+        height_zoom_btn (QPushButton): 高度缩放按钮。
+        center_zoom_btn (QPushButton): 中心缩放按钮。
+        zoom_buttons (list): 缩放按钮列表，用于互斥管理。
+        reset_btn (QPushButton): 重置视图按钮。
+        save_btn (QPushButton): 保存图片按钮。
+        close_btn (QPushButton): 关闭窗口按钮。
+        hint_label (QLabel): 操作提示标签。
+
+    Example:
+        >>> window = WaveformWindow()
+        >>> window.plot(voltage_data, 0, 1000)
+        >>> window.show()
+    """
+
     def __init__(self, parent=None):
+        """初始化波形窗口。
+
+        创建绘图控件和控制按钮，设置布局和信号连接。
+
+        Args:
+            parent (QWidget, optional): 父窗口对象。默认值为 None。
+        """
         super().__init__(parent)
         self.setWindowTitle("波形图")
         self.setMinimumSize(1000, 600)
-        
+
         layout = QVBoxLayout()
         self.plot_widget = PlotWidget()
         layout.addWidget(self.plot_widget, stretch=1)
-        
+
         btn_layout = QHBoxLayout()
-        
-        # 缩放模式切换按钮 —— 【无 QButtonGroup，纯手动互斥，100% 可用】
+
         self.width_zoom_btn = QPushButton("宽度缩放 (W)")
         self.width_zoom_btn.setCheckable(True)
-        self.width_zoom_btn.setChecked(True)  # 未选中
+        self.width_zoom_btn.setChecked(True)
         self.width_zoom_btn.setStyleSheet(self.get_zoom_button_style())
         btn_layout.addWidget(self.width_zoom_btn)
-        
+
         self.height_zoom_btn = QPushButton("高度缩放 (H)")
         self.height_zoom_btn.setCheckable(True)
-        self.height_zoom_btn.setChecked(False)  # 默认选中
+        self.height_zoom_btn.setChecked(False)
         self.height_zoom_btn.setStyleSheet(self.get_zoom_button_style())
         btn_layout.addWidget(self.height_zoom_btn)
-        
+
         self.center_zoom_btn = QPushButton("中心缩放 (C)")
         self.center_zoom_btn.setCheckable(True)
-        self.center_zoom_btn.setChecked(False)  # 未选中
+        self.center_zoom_btn.setChecked(False)
         self.center_zoom_btn.setStyleSheet(self.get_zoom_button_style())
         btn_layout.addWidget(self.center_zoom_btn)
-        
-        # 把所有按钮放进列表，方便统一管理
+
         self.zoom_buttons = [
             self.width_zoom_btn,
             self.height_zoom_btn,
             self.center_zoom_btn
         ]
-        
-        # 绑定点击事件
+
         self.width_zoom_btn.clicked.connect(self.on_zoom_mode_clicked)
         self.height_zoom_btn.clicked.connect(self.on_zoom_mode_clicked)
         self.center_zoom_btn.clicked.connect(self.on_zoom_mode_clicked)
-        
-        # 确保 PlotWidget 的初始缩放模式与按钮状态一致
+
         self.plot_widget.zoom_mode = ZoomMode.WIDTH
-        
+
         btn_layout.addSpacing(20)
-        
+
         self.reset_btn = QPushButton("重置视图 (Home)")
         self.reset_btn.clicked.connect(self.reset_view)
         btn_layout.addWidget(self.reset_btn)
-        
+
         self.save_btn = QPushButton("保存图片")
         self.save_btn.clicked.connect(self.save_image)
         btn_layout.addWidget(self.save_btn)
-        
+
         btn_layout.addStretch()
-        
+
         self.close_btn = QPushButton("关闭")
         self.close_btn.clicked.connect(self.close)
         btn_layout.addWidget(self.close_btn)
-        
+
         layout.addLayout(btn_layout)
         self.setLayout(layout)
-        
-        # 添加提示标签
+
         self.hint_label = QLabel("提示：鼠标左键拖动平移 | 滚轮缩放 | 方向键平移 | +/- 缩放 | W/H/C 切换缩放模式")
         self.hint_label.setStyleSheet("color: gray; font-size: 12px;")
         btn_layout.addWidget(self.hint_label)
-        
+
     def on_zoom_mode_clicked(self):
-        """处理缩放模式按钮点击 —— 纯手动互斥"""
-        # 点击谁，就只让它选中，其他全部取消
+        """处理缩放模式按钮点击事件。
+
+        实现按钮的手动互斥逻辑，并更新绘图控件的缩放模式。
+        """
         clicked_btn = self.sender()
-        
+
         for btn in self.zoom_buttons:
             if btn == clicked_btn:
                 btn.setChecked(True)
             else:
                 btn.setChecked(False)
-        
-        # 设置对应的缩放模式
+
         if self.width_zoom_btn.isChecked():
             self.plot_widget.zoom_mode = ZoomMode.WIDTH
             print("当前：宽度缩放")
@@ -654,12 +883,19 @@ class WaveformWindow(QDialog):
         elif self.center_zoom_btn.isChecked():
             self.plot_widget.zoom_mode = ZoomMode.CENTER
             print("当前：中心缩放")
-        
+
     def set_zoom_mode(self, mode):
-        """设置缩放模式（通过快捷键调用）"""
+        """设置缩放模式（同步更新按钮状态）。
+
+        Args:
+            mode (int): 缩放模式，见 ZoomMode 类定义。
+
+        Example:
+            >>> window = WaveformWindow()
+            >>> window.set_zoom_mode(ZoomMode.CENTER)
+        """
         self.plot_widget.zoom_mode = mode
-        
-        # 更新按钮状态
+
         if mode == ZoomMode.WIDTH:
             self.width_zoom_btn.setChecked(True)
             self.height_zoom_btn.setChecked(False)
@@ -672,41 +908,71 @@ class WaveformWindow(QDialog):
             self.width_zoom_btn.setChecked(False)
             self.height_zoom_btn.setChecked(False)
             self.center_zoom_btn.setChecked(True)
-        
+
     def reset_view(self):
-        """重置视图为原始数据范围"""
+        """重置视图为原始数据范围。
+
+        Example:
+            >>> window = WaveformWindow()
+            >>> window.reset_view()
+        """
         self.plot_widget.reset_view()
-        
+
     def plot(self, voltage_data, start_idx, end_idx):
-        # 降采样处理：500000个点太多，降采样到最大5000个点
+        """绘制电压波形图。
+
+        对电压数据进行降采样处理后绘制波形图，
+        X轴显示数据点序号范围。
+
+        Args:
+            voltage_data (array_like): 电压数据数组。
+            start_idx (int): 起始数据点序号（从1开始）。
+            end_idx (int): 结束数据点序号（从1开始）。
+
+        Example:
+            >>> window = WaveformWindow()
+            >>> window.plot([0, 1, 2, 3, 4], 1, 5)
+        """
         x_data = np.array(range(start_idx, end_idx + 1))
         y_data = np.array(voltage_data)
-        
-        # 降采样
+
         x_data, y_data = decimate_data(x_data, y_data, max_points=5000)
-        
+
         self.plot_widget.set_data(x_data, y_data)
-        # self.plot_widget.set_labels("数据点序号（1开始）", "电压值 (V)")
         self.plot_widget.set_title(f"第 {start_idx} - 第 {end_idx} 个数据点")
         self.plot_widget.clear_vertical_line()
-        
+
     def plot_spectrum(self, fundamental_volt_dict, flag_frep):
+        """绘制频谱分析图。
+
+        根据频率-电压字典数据绘制频谱图，并标记目标频率或峰值。
+
+        Args:
+            fundamental_volt_dict (dict): 频率数据字典，键为频率（Hz），
+                值为包含 "volt" 和 "dbm" 的字典。
+            flag_frep (int): 标记频率（Hz），若存在则标记该点，
+                否则标记峰值点。
+
+        Example:
+            >>> data = {1000: {"volt": 1.0, "dbm": 10}, 2000: {"volt": 0.5, "dbm": 5}}
+            >>> window = WaveformWindow()
+            >>> window.plot_spectrum(data, 1000)
+        """
         frequencies = sorted(fundamental_volt_dict.keys())
         dbm_values = [fundamental_volt_dict[f]["dbm"] for f in frequencies]
         voltage_values = [fundamental_volt_dict[f]["volt"] for f in frequencies]
-        
+
         if not frequencies or not dbm_values:
             QMessageBox.warning(self, "数据错误", "无有效频谱数据可绘制！")
             return
-            
-        # 转换为numpy数组
+
         frequencies = np.array(frequencies)
         dbm_values = np.array(dbm_values)
-        
+
         self.plot_widget.set_data(frequencies, dbm_values)
         self.plot_widget.set_labels("频率 (Hz)", "功率幅值 (dBm)")
         self.plot_widget.set_title("频谱分析图")
-        
+
         if flag_frep in fundamental_volt_dict:
             target_dbm = fundamental_volt_dict[flag_frep]["dbm"]
             target_volt = fundamental_volt_dict[flag_frep]["volt"]
@@ -719,8 +985,16 @@ class WaveformWindow(QDialog):
             target_volt = voltage_values[peak_idx]
             label = f"峰值: {flag_freq} Hz\n幅值: {target_volt:.3f} V\n{target_dbm:.1f} dBm"
             self.plot_widget.set_vertical_line(flag_freq, QColor(255, 0, 0), label)
-            
+
     def save_image(self):
+        """保存当前绘图为图片文件。
+
+        弹出文件保存对话框，将绘图控件内容保存为 PNG 图片。
+
+        Example:
+            >>> window = WaveformWindow()
+            >>> window.save_image()
+        """
         file_path, _ = QFileDialog.getSaveFileName(
             self, "保存图片", "", "PNG Files (*.png);;All Files (*)"
         )
@@ -728,9 +1002,19 @@ class WaveformWindow(QDialog):
             pixmap = self.plot_widget.grab()
             pixmap.save(file_path, "PNG")
             QMessageBox.information(self, "成功", "图片已保存！")
-        
+
     def get_zoom_button_style(self):
-        """获取缩放按钮的样式表，明确区分选中和未选中状态"""
+        """获取缩放按钮的样式表。
+
+        定义按钮在普通、悬停、选中状态下的外观样式。
+
+        Returns:
+            str: Qt 样式表字符串。
+
+        Example:
+            >>> window = WaveformWindow()
+            >>> style = window.get_zoom_button_style()
+        """
         return """
             QPushButton {
                 background-color: #e0e0e0;
@@ -755,9 +1039,29 @@ class WaveformWindow(QDialog):
 
 
 class WaveformPlugin(QWidget):
+    """波形分析插件主类。
+
+    提供波形分析的主要功能界面，包括二进制文件解码、
+    频率计算、FFT分析、波形显示和频谱分析等功能。
+
+    Attributes:
+        version (str): 插件版本号。
+        comboBox_frep_1 (QComboBox): 频率选择下拉框。
+        radio_group (QButtonGroup): 窗函数选择按钮组。
+        textBrowser (QTextBrowser): 日志输出文本框。
+
+    Example:
+        >>> plugin = WaveformPlugin()
+        >>> plugin.show()
+    """
+
     def __init__(self):
+        """初始化波形分析插件。
+
+        加载 UI 界面，初始化控件，连接信号槽。
+        """
         super().__init__()
-        self.version = 'v1'
+        self.version = 'v2'
         ui_path = get_resource_path('main.ui')
         loadUi(ui_path, self)
         self.setWindowTitle(f'Waveform {self.version} by:zjx')
@@ -780,15 +1084,44 @@ class WaveformPlugin(QWidget):
         self.pushButton_frep.clicked.connect(self.spectrum_diagram_waveform)
 
     def get_widget(self):
+        """获取插件的主窗口控件。
+
+        Returns:
+            QWidget: 插件主窗口对象（即自身）。
+
+        Example:
+            >>> plugin = WaveformPlugin()
+            >>> widget = plugin.get_widget()
+        """
         return self
 
     def get_name(self):
-        """
-        返回插件名称
+        """获取插件名称。
+
+        Returns:
+            str: 插件名称，包含版本号。
+
+        Example:
+            >>> plugin = WaveformPlugin()
+            >>> print(plugin.get_name())
+            Waveform v1
         """
         return f'Waveform {self.version}'
 
     def analysis_bin(self):
+        """解析二进制文件并生成 CSV 文件。
+
+        读取用户指定的二进制文件路径，验证文件格式后，
+        调用解码函数将二进制数据转换为 CSV 格式的电压数据。
+
+        Returns:
+            bool: 成功返回 True，失败返回 False。
+
+        Example:
+            >>> plugin = WaveformPlugin()
+            >>> plugin.textEdit_binPath.setPlainText("data.bin")
+            >>> plugin.analysis_bin()
+        """
         bin_path = self.textEdit_binPath.toPlainText()
         if not os.path.exists(bin_path):
             QMessageBox.critical(self, "错误", f"文件不存在：{bin_path}")
@@ -804,14 +1137,26 @@ class WaveformPlugin(QWidget):
         except ValueError:
             self.show_message("错误", "衰减倍数获取失败")
             return
-        csv_path = code_to_mvolt.decode_bin_to_csv(bin_path,DBM_gain)
+        csv_path = code_to_mvolt.decode_bin_to_csv(bin_path, DBM_gain)
         self.textEdit_csvPath.setPlainText(csv_path)
         self.textBrowser.append(f'<font color="green">[成功]</font> 生成 CSV 文件：{csv_path}')
 
     def calculate_frequency(self, csv_path):
+        """计算信号频率。
+
+        从 CSV 文件读取电压数据，使用上升沿检测算法
+        计算信号频率，并输出结果到日志窗口。
+
+        Args:
+            csv_path (str): CSV 文件路径。
+
+        Example:
+            >>> plugin = WaveformPlugin()
+            >>> plugin.calculate_frequency("data.csv")
+        """
         self.textBrowser.append("开始计算频率")
         referVolt = int(self.lineEdit_referVolt.text())
-        intervalCount = int(self.lineEdit_intervalCount.text()) 
+        intervalCount = int(self.lineEdit_intervalCount.text())
         _sampleRate = int(self.lineEdit_sample_rate.text())
         raw_data = []
         with open(csv_path, 'r', encoding='utf-8') as f:
@@ -827,6 +1172,18 @@ class WaveformPlugin(QWidget):
         self.textBrowser.append(f"计算得到的频率：{freq}")
 
     def calculate_dbm(self, csv_path):
+        """计算指定频率的 dBm 值。
+
+        对 CSV 数据进行 FFT 分析，计算目标频率处的电压幅值
+        和 dBm 值，并输出结果到日志窗口。
+
+        Args:
+            csv_path (str): CSV 文件路径。
+
+        Example:
+            >>> plugin = WaveformPlugin()
+            >>> plugin.calculate_dbm("data.csv")
+        """
         self.textBrowser.append("开始计算dbm")
         sample_rate = int(self.lineEdit_sample_rate.text())
 
@@ -840,11 +1197,11 @@ class WaveformPlugin(QWidget):
             elif selected_text == "汉宁窗":
                 window_type = 2
             elif selected_text == "布莱克曼-哈里斯窗":
-                window_type = 3  
-        try:                  
+                window_type = 3
+        try:
             load_impedance = float(self.lineEdit_impedance.text())
-            cal_constant = float(self.lineEdit_cal_constant.text()) 
-            gain = float(self.lineEdit_gain1.text()) 
+            cal_constant = float(self.lineEdit_cal_constant.text())
+            gain = float(self.lineEdit_gain1.text())
         except ValueError:
             self.show_message("错误", "负载阻抗或校准常数或gain有误")
             return
@@ -853,12 +1210,12 @@ class WaveformPlugin(QWidget):
         selected_radio_dbm = "fixture"
         if selected_radio_vpp == "apple":
             dbm_value_1, fundamental_voltage = FFT.get_dbm_by_frequency(
-                csv_path, sample_rate, load_impedance, 
+                csv_path, sample_rate, load_impedance,
                 float(self.comboBox_frep_1.currentText()), selected_radio_dbm)
         else:
             raw_voltage = FFT.read_voltage_from_csv(csv_path)
             fft_result = FFT.fft_analysis(
-                raw_voltage, sample_rate, window_type, 
+                raw_voltage, sample_rate, window_type,
                 float(self.comboBox_frep_1.currentText()))
             fundamental_voltage = fft_result["fundamental_voltage"]
             if selected_radio_dbm == "fixture":
@@ -881,6 +1238,18 @@ class WaveformPlugin(QWidget):
                 f"频率-dbm计算结果（负载阻抗{load_impedance}Ω）：{dbm_value_1:.9f} dBm")
 
     def analysis_csv(self):
+        """解析 CSV 文件并执行完整分析。
+
+        验证 CSV 文件路径后，依次执行频率计算和 dBm 计算。
+
+        Returns:
+            bool: 成功返回 True，失败返回 False。
+
+        Example:
+            >>> plugin = WaveformPlugin()
+            >>> plugin.textEdit_csvPath.setPlainText("data.csv")
+            >>> plugin.analysis_csv()
+        """
         csv_path = self.textEdit_csvPath.toPlainText()
         if not os.path.exists(csv_path):
             QMessageBox.critical(self, "错误", f"文件不存在：{csv_path}")
@@ -895,6 +1264,18 @@ class WaveformPlugin(QWidget):
         self.calculate_dbm(csv_path)
 
     def plot_voltage_range_waveform(self):
+        """绘制指定范围内的电压波形图。
+
+        从 CSV 文件读取数据，根据用户指定的起始和结束点
+        绘制电压波形图，在新窗口中显示。
+
+        Returns:
+            bool: 成功返回 True，失败返回 False。
+
+        Example:
+            >>> plugin = WaveformPlugin()
+            >>> plugin.plot_voltage_range_waveform()
+        """
         csv_path = self.textEdit_csvPath.toPlainText()
         if not os.path.exists(csv_path):
             QMessageBox.critical(self, "错误", f"文件不存在：{csv_path}")
@@ -926,7 +1307,6 @@ class WaveformPlugin(QWidget):
             total_data = len(voltage_data)
             print(f"读取到 {total_data} 个电压数据点")
 
-            # 索引转换
             start = start_idx - 1
             end = end_idx - 1
             start = max(0, start)
@@ -949,9 +1329,31 @@ class WaveformPlugin(QWidget):
         self.waveform_window.show()
 
     def show_message(self, title, content):
+        """显示消息提示框。
+
+        Args:
+            title (str): 消息框标题。
+            content (str): 消息内容。
+
+        Example:
+            >>> plugin = WaveformPlugin()
+            >>> plugin.show_message("提示", "操作成功")
+        """
         QMessageBox.information(self, title, content)
 
     def spectrum_diagram_waveform(self):
+        """绘制频谱分析图。
+
+        对 CSV 数据进行 FFT 分析，计算指定频率范围内的
+        频谱数据，并在新窗口中绘制频谱图。
+
+        Returns:
+            bool: 成功返回 True，失败返回 False。
+
+        Example:
+            >>> plugin = WaveformPlugin()
+            >>> plugin.spectrum_diagram_waveform()
+        """
         csv_path = self.textEdit_csvPath.toPlainText()
         if not os.path.exists(csv_path):
             QMessageBox.critical(self, "错误", f"文件不存在：{csv_path}")
@@ -983,10 +1385,10 @@ class WaveformPlugin(QWidget):
             elif selected_text == "布莱克曼-哈里斯窗":
                 window_type = 3
 
-        try:                  
+        try:
             load_impedance = float(self.lineEdit_impedance.text())
-            cal_constant = float(self.lineEdit_cal_constant.text()) 
-            gain = float(self.lineEdit_gain1.text()) 
+            cal_constant = float(self.lineEdit_cal_constant.text())
+            gain = float(self.lineEdit_gain1.text())
         except ValueError:
             self.show_message("错误", "负载阻抗或校准常数或gain有误")
             return
@@ -996,7 +1398,6 @@ class WaveformPlugin(QWidget):
         selected_radio_vpp = "fixture"
         selected_radio_dbm = "fixture"
 
-        # 直接导入 FFT 而不是加载外部文件
         data_dict = FFT.get_fundamental_volt(
             csv_path, sample_rate, window_type,
             start_frep, end_frep, step_frep,
