@@ -65,13 +65,16 @@
         </widget>
        </item>
        <item>
-        <widget class="QTextEdit" name="logText">
-         <property name="readOnly">
-          <bool>true</bool>
-         </property>
+        <widget class="QTabWidget" name="logTabWidget">
          <property name="styleSheet">
-          <string>QTextEdit { font-family: "SF Mono", Monaco, Menlo, monospace; font-size: 12px; background: #1e1e1e; color: #d4d4d4; border: 1px solid #d0d0d0; border-radius: 3px; }</string>
+          <string>QTabWidget::tab-bar { alignment: left; } QTabWidget::tab { padding: 4px 12px; font-size: 12px; } QTabWidget::tab:selected { background: #e8f0fe; border-color: #0078d4; } QTextEdit { font-family: "SF Mono", Monaco, Menlo, monospace; font-size: 12px; background: #1e1e1e; color: #d4d4d4; border: none; }</string>
          </property>
+         <widget class="QTextEdit" name="logText">
+          <property name="readOnly">
+           <bool>true</bool>
+          </property>
+         </widget>
+         <tabstop>logText</tabstop>
         </widget>
        </item>
       </layout>

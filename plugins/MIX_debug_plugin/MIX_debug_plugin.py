@@ -54,17 +54,19 @@ class MIXDebugPlugin(QMainWindow):
         """
         super().__init__()
         self.log_mutex = threading.Lock()
-        self.version = 'v3'
+        self.version = 'v4'
         ui_path = get_resource_path('MIX_debug_plugin.ui')
         loadUi(ui_path, self)
         self.setWindowTitle(f'MIX-debug {self.version} by:zjx')
         self.rpc_clients = {}
         self.last_sequence_file = None
+        self.channel_logs = {}
         self.init_signals()
         self.load_channels_from_config()
         self.load_history_from_config()
         self.resizeEvent = self.on_resize
         self.sequence = False
+        self.logTabWidget.setTabText(0, '总日志')
     
     def get_widget(self):
         """返回插件的主窗口部件。
@@ -275,6 +277,54 @@ class MIXDebugPlugin(QMainWindow):
             from utils.logger import init_logger
             logger = init_logger(name="MixToolLogger", log_file="mixTool.log")
             logger.info(message)
+            
+            for channel_name, log_widget in self.channel_logs.items():
+                if f'[{channel_name}]' in message:
+                    log_widget.insertPlainText(message + '\n')
+                    log_widget.ensureCursorVisible()
+    
+    def update_channel_log_tabs(self):
+        """更新通道日志标签页。
+
+        根据IP通道表格中的通道数量，动态创建/删除日志标签页。
+        第一个标签页始终是'总日志'，其他标签页与通道一一对应。
+        """
+        current_channels = {}
+        for row in range(self.ipTable.rowCount()):
+            channel_name = self.ipTable.item(row, 0).text()
+            current_channels[channel_name] = row
+        
+        tabs_to_remove = []
+        for i in range(1, self.logTabWidget.count()):
+            tab_name = self.logTabWidget.tabText(i)
+            if tab_name not in current_channels:
+                tabs_to_remove.append(i)
+        
+        for i in reversed(tabs_to_remove):
+            widget = self.logTabWidget.widget(i)
+            self.logTabWidget.removeTab(i)
+            widget.deleteLater()
+        
+        for channel_name in current_channels:
+            if channel_name not in self.channel_logs:
+                log_widget = QTextEdit()
+                log_widget.setReadOnly(True)
+                log_widget.setStyleSheet(
+                    'QTextEdit { font-family: "SF Mono", Monaco, Menlo, monospace; '
+                    'font-size: 12px; background: #1e1e1e; color: #d4d4d4; border: none; }'
+                )
+                self.logTabWidget.addTab(log_widget, channel_name)
+                self.channel_logs[channel_name] = log_widget
+        
+        for i in range(1, self.logTabWidget.count()):
+            tab_name = self.logTabWidget.tabText(i)
+            if tab_name in self.channel_logs:
+                widget = self.logTabWidget.widget(i)
+                if widget != self.channel_logs[tab_name]:
+                    old_widget = self.logTabWidget.widget(i)
+                    self.logTabWidget.removeTab(i)
+                    old_widget.deleteLater()
+                    self.logTabWidget.insertTab(i, self.channel_logs[tab_name], tab_name)
     
     def show_config_channel_dialog(self):
         """显示通道配置对话框。
@@ -377,6 +427,7 @@ class MIXDebugPlugin(QMainWindow):
             
             self.log_message(f'配置了 {count} 个通道')
             self.save_channels_to_config()
+            self.update_channel_log_tabs()
             dialog.accept()
         
         ok_btn.clicked.connect(on_ok)
@@ -558,6 +609,7 @@ class MIXDebugPlugin(QMainWindow):
         self.log_message(f'从配置文件加载了 {len(channels)} 个通道')
         
         self.ipTable.cellChanged.connect(self.on_cell_changed)
+        self.update_channel_log_tabs()
     
     def save_channels_to_config(self):
         """保存通道配置到配置文件。

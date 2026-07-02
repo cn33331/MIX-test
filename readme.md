@@ -275,7 +275,7 @@ pip install -r requirements.txt
 
 ```bash
 # 打包主应用
-pyinstaller main_application.spec
+pyinstaller Automation-Platform.spec
 
 # 打包独立版本
 pyinstaller -F main.py
