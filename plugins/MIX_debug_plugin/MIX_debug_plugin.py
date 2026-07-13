@@ -171,10 +171,15 @@ class MIXDebugPlugin(QMainWindow):
             self.log_message('命令格式错误，应为 service.method')
             return
         
-        self.send_command_to_all_channels(service_name, method_name, command_with_params, *args, **kwargs)
+        try:
+            rpc_timeout = int(self.timeoutInput.text().strip())
+        except (ValueError, AttributeError):
+            rpc_timeout = 30
+        
+        self.send_command_to_all_channels(service_name, method_name, command_with_params, rpc_timeout, *args, **kwargs)
         self.add_to_history(command_with_params)
     
-    def _send_command_to_channel(self, row, service_name, method_name, command_with_params, args, kwargs, connected_channels):
+    def _send_command_to_channel(self, row, service_name, method_name, command_with_params, rpc_timeout, args, kwargs, connected_channels):
         """向单个通道发送RPC命令（线程函数）。
 
         Args:
@@ -182,6 +187,7 @@ class MIXDebugPlugin(QMainWindow):
             service_name: 服务名称字符串
             method_name: 方法名称字符串
             command_with_params: 完整的命令字符串（含参数）
+            rpc_timeout: 超时时间（秒）
             args: 位置参数元组
             kwargs: 关键字参数字典
             connected_channels: 已连接通道名称列表（线程安全）
@@ -198,7 +204,7 @@ class MIXDebugPlugin(QMainWindow):
         if row in self.rpc_clients:
             client = self.rpc_clients[row]
             try:
-                result = client.send_command(service_name, method_name, *args, **kwargs)
+                result = client.send_command(service_name, method_name, *args, rpc_timeout=rpc_timeout, **kwargs)
                 if isinstance(result, dict):
                     result_str = json.dumps(result, indent=2, ensure_ascii=False)
                 elif isinstance(result, (list, tuple)):
@@ -216,7 +222,7 @@ class MIXDebugPlugin(QMainWindow):
         else:
             self.log_message(f'[{channel_name}] RPC客户端未找到，请重新连接')
     
-    def send_command_to_all_channels(self, service_name, method_name, command_with_params, *args, **kwargs):
+    def send_command_to_all_channels(self, service_name, method_name, command_with_params, rpc_timeout, *args, **kwargs):
         """向所有已连接的通道发送RPC命令（多线程）。
 
         遍历所有通道，使用多线程并行向状态为'已连接'的通道发送命令，
@@ -226,6 +232,7 @@ class MIXDebugPlugin(QMainWindow):
             service_name: 服务名称字符串
             method_name: 方法名称字符串
             command_with_params: 完整的命令字符串（含参数）
+            rpc_timeout: 超时时间（秒）
             *args: 位置参数列表
             **kwargs: 关键字参数字典
 
@@ -244,7 +251,7 @@ class MIXDebugPlugin(QMainWindow):
             if status == '已连接':
                 thread = threading.Thread(
                     target=self._send_command_to_channel,
-                    args=(row, service_name, method_name, command_with_params, args, kwargs, connected_channels),
+                    args=(row, service_name, method_name, command_with_params, rpc_timeout, args, kwargs, connected_channels),
                     daemon=True
                 )
                 threads.append(thread)

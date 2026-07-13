@@ -30,7 +30,7 @@ def code_to_mvolt2(code, gain=58.3, mvref=1000):
     code >>= 20
     if code >= 0x800:
         code -= 0x1000
-    print(gain)
+    # print(gain)
     return code / 0x7ff * gain
 
 

@@ -1061,12 +1061,12 @@ class WaveformPlugin(QWidget):
         加载 UI 界面，初始化控件，连接信号槽。
         """
         super().__init__()
-        self.version = 'v2'
+        self.version = 'v3'
         ui_path = get_resource_path('main.ui')
         loadUi(ui_path, self)
         self.setWindowTitle(f'Waveform {self.version} by:zjx')
 
-        self.comboBox_frep_1.addItems(["112000", "238000", "322000", "406000", "464000", "498000"])
+        self.comboBox_frep_1.addItems(["120000","300000","550000","500000","112000", "238000", "322000", "406000", "464000", "498000"])
         enable_drag_drop(self.textEdit_binPath)
         enable_drag_drop(self.textEdit_csvPath)
 
@@ -1206,7 +1206,7 @@ class WaveformPlugin(QWidget):
             self.show_message("错误", "负载阻抗或校准常数或gain有误")
             return
 
-        selected_radio_vpp = "fixture"
+        selected_radio_vpp = "fixture_plus"
         selected_radio_dbm = "fixture"
         if selected_radio_vpp == "apple":
             dbm_value_1, fundamental_voltage = FFT.get_dbm_by_frequency(
@@ -1218,6 +1218,8 @@ class WaveformPlugin(QWidget):
                 raw_voltage, sample_rate, window_type,
                 float(self.comboBox_frep_1.currentText()))
             fundamental_voltage = fft_result["fundamental_voltage"]
+            fundamental_freq = fft_result["fundamental_freq"]
+            fundamental_rms = fft_result["fundamental_rms"]
             if selected_radio_dbm == "fixture":
                 dbm_value_1 = FFT.voltage_to_dbm_Fixture(
                     fundamental_voltage, gain, load_impedance, cal_constant)
@@ -1231,8 +1233,11 @@ class WaveformPlugin(QWidget):
             print(f"===============================================")
 
         self.textBrowser.append(f"FFT分析结果：")
+        self.textBrowser.append(f"基频频率: {fundamental_freq:.9f} Hz")
+        self.textBrowser.append(f"基频RMS: {fundamental_rms:.9f} V")
+        self.textBrowser.append(f"计算频率: {float(self.comboBox_frep_1.currentText()):.9f} Hz")
+        self.textBrowser.append(f"该频率电压幅值: {fundamental_voltage:.9f} V")
         self.textBrowser.append(f"gain: {gain:.9f}")
-        self.textBrowser.append(f"频率电压幅值: {fundamental_voltage:.9f} V")
         if dbm_value_1 is not None:
             self.textBrowser.append(
                 f"频率-dbm计算结果（负载阻抗{load_impedance}Ω）：{dbm_value_1:.9f} dBm")
@@ -1260,7 +1265,7 @@ class WaveformPlugin(QWidget):
             return False
 
         self.textBrowser.append("\n=== 开始解析 csv 文件 ===\n")
-        self.calculate_frequency(csv_path)
+        # self.calculate_frequency(csv_path)
         self.calculate_dbm(csv_path)
 
     def plot_voltage_range_waveform(self):
@@ -1395,7 +1400,7 @@ class WaveformPlugin(QWidget):
 
         sample_rate = int(self.lineEdit_sample_rate.text())
 
-        selected_radio_vpp = "fixture"
+        selected_radio_vpp = "fixture_plus"
         selected_radio_dbm = "fixture"
 
         data_dict = FFT.get_fundamental_volt(

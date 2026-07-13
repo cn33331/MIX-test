@@ -216,6 +216,8 @@ class MainApplication(QMainWindow):
         for plugin_name, info in list(self.loaded_plugins.items()):
             if info['title'] == title:
                 del self.loaded_plugins[plugin_name]
+                if plugin_name in sys.modules:
+                    del sys.modules[plugin_name]
                 break
 
 

@@ -129,7 +129,7 @@ class RpcClient:
                 return self.services
         return self.services
     
-    def send_command(self, service_name, method_name, *args, **kwargs):
+    def send_command(self, service_name, method_name, *args, rpc_timeout=None, **kwargs):
         """发送RPC命令到MIX8设备。
 
         向指定服务的指定方法发送调用请求，支持位置参数和关键字参数。
@@ -138,6 +138,7 @@ class RpcClient:
             service_name: 服务名称字符串
             method_name: 方法名称字符串
             *args: 位置参数，可变长度
+            rpc_timeout: 超时时间（秒），可选
             **kwargs: 关键字参数，字典形式
 
         Returns:
@@ -154,7 +155,7 @@ class RpcClient:
             return f"错误: RPC客户端未连接"
         
         try:
-            ret = self.mix8_client.stub(service_name, method_name, *args, **kwargs)
+            ret = self.mix8_client.stub(service_name, method_name, *args, rpc_timeout=rpc_timeout, **kwargs)
             return ret
         except Exception as e:
             self._log(f"发送指令失败: {e}")
