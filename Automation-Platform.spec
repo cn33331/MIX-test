@@ -29,9 +29,7 @@ a = Analysis(
     [os.path.join(current_dir, 'main_application.py')],
     pathex=[current_dir],
     binaries=[],
-    datas=[
-        (os.path.join(current_dir, 'utils'), 'utils'),
-    ],
+    datas=[],
     hiddenimports=[
         '__future__',
         'zmq',

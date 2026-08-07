@@ -6,7 +6,7 @@
 """
 
 from PyQt6.QtWidgets import QMainWindow, QTabWidget, QApplication, QVBoxLayout, QWidget, QMenu, QMessageBox
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QAction, QCloseEvent
 from PyQt6.QtCore import Qt
 import sys
 import os
@@ -40,6 +40,14 @@ def get_plugins_dir():
     else:
         # 开发环境：从源码目录查找
         return os.path.join(os.path.dirname(os.path.abspath(__file__)), 'plugins')
+
+
+# 确保插件目录（含公共 utils 子模块）在 sys.path 中，
+# 以便所有插件都能 `from utils.xxx import ...`。
+# 开发环境：项目根/plugins；打包后：MacOS/plugins
+_plugins_dir_for_path = get_plugins_dir()
+if _plugins_dir_for_path not in sys.path:
+    sys.path.insert(0, _plugins_dir_for_path)
 
 
 class MainApplication(QMainWindow):
@@ -207,9 +215,21 @@ class MainApplication(QMainWindow):
     def close_tab(self, index):
         """
         关闭标签页
+
+        先调用插件的 closeEvent 让其保存配置，再删除。
+        否则子 QWidget 的 closeEvent 不会被 Qt 自动触发，
+        导致插件在 closeEvent 里写的"保存配置"代码失效。
         """
         title = self.tab_widget.tabText(index)
         widget = self.tab_widget.widget(index)
+
+        # 主动调用插件的 closeEvent，让其有机会保存配置/释放资源
+        if hasattr(widget, 'closeEvent'):
+            try:
+                widget.closeEvent(QCloseEvent())
+            except Exception as e:
+                print(f"[关闭插件] {title} closeEvent 异常: {e}")
+
         self.tab_widget.removeTab(index)
         widget.deleteLater()
 
@@ -219,6 +239,25 @@ class MainApplication(QMainWindow):
                 if plugin_name in sys.modules:
                     del sys.modules[plugin_name]
                 break
+
+    def closeEvent(self, event):
+        """
+        主窗口关闭事件：遍历所有已加载插件，调用其 closeEvent 让其保存配置。
+
+        Qt 默认不会把关闭事件传播到子 widget，必须手动触发；
+        否则像 RsyncPlugin 这类在 closeEvent 里保存部署指令的插件，
+        会因为 closeEvent 未被调用而丢失用户配置。
+        """
+        for plugin_name, info in list(self.loaded_plugins.items()):
+            plugin_instance = info.get('instance')
+            if plugin_instance is None:
+                continue
+            if hasattr(plugin_instance, 'closeEvent'):
+                try:
+                    plugin_instance.closeEvent(QCloseEvent())
+                except Exception as e:
+                    print(f"[主窗口关闭] 插件 {plugin_name} closeEvent 异常: {e}")
+        super().closeEvent(event)
 
 
 if __name__ == "__main__":

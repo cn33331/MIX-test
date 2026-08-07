@@ -20,8 +20,8 @@ def init_logger(name="AppLogger", log_file="app.log"):
         # 使用AppData目录
         log_dir = os.path.join(os.environ.get('APPDATA', ''), 'MIX-Tool', 'logs')
     else:
-        # 其他系统使用当前目录
-        log_dir = os.path.join(os.path.dirname(__file__), '..', 'logs')
+        # 其他系统使用当前工作目录（避免依赖 __file__ 路径漂移）
+        log_dir = os.path.join(os.getcwd(), 'logs')
     
     # 确保日志目录存在
     if not os.path.exists(log_dir):
@@ -30,8 +30,8 @@ def init_logger(name="AppLogger", log_file="app.log"):
             print(f"创建日志目录: {log_dir}")
         except Exception as e:
             print(f"创建日志目录失败: {e}")
-            # 如果创建失败，使用当前目录
-            log_dir = os.path.dirname(__file__)
+            # 如果创建失败，使用当前工作目录
+            log_dir = os.getcwd()
     
     log_file = os.path.join(log_dir, log_file)
     

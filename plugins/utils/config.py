@@ -32,8 +32,8 @@ class ConfigManager:
             # 使用AppData目录
             config_dir = os.path.join(os.environ.get('APPDATA', ''), 'MIX-Tool')
         else:
-            # 其他系统使用当前目录
-            config_dir = os.path.join(os.path.dirname(__file__), '..', 'config')
+            # 其他系统使用当前工作目录（避免依赖 __file__ 路径漂移）
+            config_dir = os.path.join(os.getcwd(), 'config')
         return config_dir
     
     def _ensure_dir_exists(self):
@@ -46,8 +46,8 @@ class ConfigManager:
                 print(f"创建配置目录: {self.config_dir}")
             except Exception as e:
                 print(f"创建配置目录失败: {e}")
-                # 如果创建失败，使用应用当前目录作为备选
-                self.config_dir = os.path.join(os.path.dirname(__file__), '..', 'config')
+                # 如果创建失败，使用应用当前工作目录作为备选
+                self.config_dir = os.path.join(os.getcwd(), 'config')
                 self.config_file = os.path.join(self.config_dir, 'config.json')
                 try:
                     os.makedirs(self.config_dir)

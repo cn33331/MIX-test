@@ -179,9 +179,6 @@ source /Users/gdlocal/Desktop/env_sum/vis/bin/activate
 ```bash
 # 运行主应用程序（支持插件集成）
 python3 main_application.py
-
-# 或直接运行MIX-debug插件
-python3 main.py
 ```
 
 ### 3. 加载插件
@@ -304,20 +301,3 @@ pyinstaller -F main.py
 - 平台版本：2.0
 - Python版本：3.8+
 - PyQt版本：6.0+
-
-## 软著作申请流程
-
-1. 软件信息
-
-   软件名称：多插件多模块快速开发平台
-
-   版本号：V3.0
-
-   开发完成日期：2026年5月13日
-
-   首次发表日期：2026年5月13日
-
-   开发方式：独立开发
-
-   著作权人：曾晶鑫（个人）
-

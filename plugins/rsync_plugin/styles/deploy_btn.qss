@@ -1,0 +1,27 @@
+/* ================================================================
+ * deploy_btn.qss - 部署按钮样式（紫色，突出"一键部署"语义）
+ *
+ * 此文件用于 rsync_plugin 的「部署」模式按钮。
+ * 平台启动时自动加载；保存此文件后 UI 会立即生效（热重载）。
+ *
+ * 修改建议：
+ *   - background-color: 按钮主色（主状态 / hover / disabled）
+ *   - border-radius:    圆角像素（工控机风格建议 2~3px）
+ *   - color:            文字颜色（白色在深色背景上对比度最佳）
+ * 若无经验，改动数值即可，勿随意增加选择器（限定 QPushButton 避免影响其他）
+ * ================================================================ */
+
+QPushButton {
+    background-color: #9C27B0;
+    color: white;
+    font-weight: bold;
+    border-radius: 3px;
+}
+
+QPushButton:hover {
+    background-color: #7B1FA2;
+}
+
+QPushButton:disabled {
+    background-color: #aaaaaa;
+}
