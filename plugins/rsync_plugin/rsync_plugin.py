@@ -520,6 +520,99 @@ class DeployWorker(QObject):
         self.finished.emit(summary)
 
 
+class LogWindow(QWidget):
+    """独立日志窗口 - 可拖拽、置顶于主界面之上。
+
+    日志内容显示在独立小窗口中，设置 WindowStaysOnTopHint 使其层级始终
+    高于主插件界面；带标准窗口框架，支持自由拖拽移动与缩放。
+    点击窗口关闭按钮仅隐藏窗口（不销毁实例、不清空内容），
+    通过主界面「日志」按钮可重新打开。
+
+    Attributes:
+        log_text: 只读日志文本框（系统可用等宽字体）。
+    """
+
+    def __init__(self, parent=None):
+        """初始化日志窗口。
+
+        Args:
+            parent: 父窗口；传入主插件实例，主界面销毁时窗口随同销毁。
+        """
+        super().__init__(
+            parent,
+            Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint,
+        )
+        self.setWindowTitle('日志')
+        self.resize(560, 320)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(UI_SPACING)
+        layout.setContentsMargins(4, 4, 4, 4)
+
+        header = QHBoxLayout()
+        header.setSpacing(UI_SPACING)
+        header.addWidget(QLabel('运行日志'))
+        header.addStretch()
+        clear_btn = QPushButton('清空')
+        clear_btn.setFixedHeight(UI_BTN_HEIGHT)
+        clear_btn.clicked.connect(self.clear_log)
+        header.addWidget(clear_btn)
+        layout.addLayout(header)
+
+        self.log_text = QPlainTextEdit()
+        self.log_text.setReadOnly(True)
+        self._apply_mono_font()
+        layout.addWidget(self.log_text, 1)
+
+    def _apply_mono_font(self):
+        """为日志框应用系统可用的等宽字体。
+
+        优先级：Menlo → Monaco → Consolas → Liberation Mono → DejaVu Sans Mono；
+        全部缺失时回退 Qt 系统固定字体，避免硬编码字体触发缺字告警。
+        """
+        mono_families = ['Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'DejaVu Sans Mono']
+        chosen = None
+        for family in mono_families:
+            if family in QFontDatabase.families():
+                chosen = family
+                break
+        if chosen:
+            self.log_text.setFont(QFont(chosen, UI_FONT_SIZE))
+        else:
+            fixed_font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+            if fixed_font is not None:
+                fixed_font.setPointSize(UI_FONT_SIZE)
+                self.log_text.setFont(fixed_font)
+            else:
+                self.log_text.setFont(QFont('Courier New', UI_FONT_SIZE))
+
+    def append(self, message: str) -> None:
+        """追加一条日志并滚动到底部。
+
+        Args:
+            message: 日志文本（支持多行，按原样插入）。
+        """
+        self.log_text.appendPlainText(message)
+        cursor = self.log_text.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        self.log_text.setTextCursor(cursor)
+
+    def clear_log(self) -> None:
+        """清空日志内容。"""
+        self.log_text.clear()
+
+    def show_and_raise(self) -> None:
+        """显示窗口并置于最前、获得焦点。"""
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def closeEvent(self, event):
+        """关闭窗口仅隐藏，保留内容供下次打开。"""
+        event.ignore()
+        self.hide()
+
+
 class RsyncPlugin(QWidget):
     """Rsync文件同步插件主窗口。
 
@@ -567,6 +660,8 @@ class RsyncPlugin(QWidget):
         self._interactive_shells: Dict[str, object] = {}
         self._shells_lock = threading.Lock()
 
+        # 独立日志窗口（置顶小窗口，可拖拽，通过「日志」按钮打开）
+        self.log_window = LogWindow(self)
         # 尽早连接日志信号（在 _init_ui 之前），保证后台线程日志能安全转发到主线程
         self._log_signal.connect(self._append_log_text)
         self._init_ui()
@@ -774,6 +869,11 @@ class RsyncPlugin(QWidget):
         sep.setFrameShape(QFrame.Shape.VLine)
         sep.setFrameShadow(QFrame.Shadow.Sunken)
         mode_row.addWidget(sep)
+
+        # 日志按钮：位于模式切换行，调试/部署模式下均可打开独立置顶日志窗口
+        self.log_btn = self._make_btn('日志')
+        self.log_btn.clicked.connect(self.open_log_window)
+        mode_row.addWidget(self.log_btn)
 
         mode_row.addStretch()
 
@@ -1025,7 +1125,10 @@ class RsyncPlugin(QWidget):
         var_layout.addRow('用户名:', self.deploy_username_edit)
         var_layout.addRow('密码:', self.deploy_password_edit)
         var_layout.addRow('端口:', self.deploy_port_edit)
-        deploy_inner_layout.addWidget(var_group)
+        # 变量(SSH 凭据) + 步骤1 + 步骤2 左右布局，步骤3 置于下方上下布局
+        deploy_top_row = QHBoxLayout()
+        deploy_top_row.setSpacing(4)
+        deploy_top_row.addWidget(var_group, 1)
 
         # === 步骤1: 目标设备 ===
         step1_group = QGroupBox('步骤1: 确定目标设备')
@@ -1068,7 +1171,7 @@ class RsyncPlugin(QWidget):
         self.deploy_hostname_filter_edit.setPlaceholderText('留空=全部，填入字符串=主机名包含该字符串才部署')
         filter_row.addWidget(self.deploy_hostname_filter_edit, 2)
         step1_layout.addLayout(filter_row)
-        deploy_inner_layout.addWidget(step1_group)
+        deploy_top_row.addWidget(step1_group, 3)
 
         # === 步骤2: 推送文件 ===
         step2_group = QGroupBox('步骤2: 推送文件到远程')
@@ -1095,7 +1198,9 @@ class RsyncPlugin(QWidget):
         self.deploy_delete_cb.setToolTip('删除目标中源端没有的文件')
         remote_row.addWidget(self.deploy_delete_cb)
         step2_layout.addLayout(remote_row)
-        deploy_inner_layout.addWidget(step2_group)
+        deploy_top_row.addWidget(step2_group, 2)
+        # 顶部三栏（变量/步骤1/步骤2）以左右布局加入主垂直布局
+        deploy_inner_layout.addLayout(deploy_top_row)
 
         # === 步骤3: 远程执行指令 ===
         step3_group = QGroupBox('步骤3: 远程执行指令（每行一条，# 开头为注释）')
@@ -1143,45 +1248,7 @@ class RsyncPlugin(QWidget):
 
         main_layout.addWidget(self.ops_stack, 2)
 
-        # ===== 6. 日志区（可折叠）=====
-        self.log_container = QFrame()
-        log_layout = QVBoxLayout(self.log_container)
-        log_layout.setSpacing(UI_SPACING)
-        log_layout.setContentsMargins(0, 0, 0, 0)
-
-        log_header = QHBoxLayout()
-        log_header.setSpacing(UI_SPACING)
-        log_header.setContentsMargins(0, 0, 0, 0)
-        log_header.addWidget(QLabel('日志'))
-        log_header.addStretch()
-        clear_log_btn = self._make_btn('清空')
-        clear_log_btn.clicked.connect(self.clear_log)
-        log_header.addWidget(clear_log_btn)
-        log_layout.addLayout(log_header)
-
-        self.log_text = QPlainTextEdit()
-        self.log_text.setReadOnly(True)
-        # 等宽字体：macOS 优先 Menlo，跨平台回退 System Fixed / Courier New，
-        # 避免硬写 "Courier New" 在 macOS 下触发 "SF Mono 缺字" 的性能警告
-        mono_families = ['Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'DejaVu Sans Mono']
-        chosen = None
-        for family in mono_families:
-            if family in QFontDatabase.families():
-                chosen = family
-                break
-        if chosen:
-            self.log_text.setFont(QFont(chosen, UI_FONT_SIZE))
-        else:
-            fixed_font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
-            if fixed_font is not None:
-                fixed_font.setPointSize(UI_FONT_SIZE)
-                self.log_text.setFont(fixed_font)
-            else:
-                self.log_text.setFont(QFont('Courier New', UI_FONT_SIZE))
-        self.log_text.setFixedHeight(80)
-        log_layout.addWidget(self.log_text)
-
-        main_layout.addWidget(self.log_container)
+        # ===== 6. 日志区：已移至独立置顶小窗口（LogWindow），由「日志」按钮打开 =====
 
         # ===== 7. 恢复UI持久化状态 =====
         self._restore_ui_state()
@@ -1270,23 +1337,23 @@ class RsyncPlugin(QWidget):
 
         线程安全：后台线程调用时通过 Qt 信号转发到主线程写 GUI，
         避免非主线程直接操作 QPlainTextEdit 导致崩溃。
-        初始化阶段容错：如果 log_text 还没被创建（_init_ui 执行中），降级到 print
-        以避免 'RsyncPlugin object has no attribute log_text' 的加载期错误。
+        初始化阶段容错：如果 log_window 还没被创建（__init__ 早期之前），降级到 print
+        以避免 'RsyncPlugin object has no attribute log_window' 的加载期错误。
 
         Args:
             message: 日志消息字符串
         """
         # logger 本身线程安全，先落盘
         logger.info(message)
-        if not hasattr(self, 'log_text') or self.log_text is None:
-            # UI 尚未初始化完成，直接打印
+        if not hasattr(self, 'log_window') or self.log_window is None:
+            # 日志窗口尚未初始化完成，直接打印
             print(message, file=sys.stderr)
             return
         # 通过信号转发到主线程（跨线程自动 queued connection）
         self._log_signal.emit(message)
 
     def _append_log_text(self, message: str):
-        """主线程槽：真正把日志写入 GUI 控件。
+        """主线程槽：真正把日志写入独立日志窗口。
 
         此方法只会在主线程（事件循环）中执行，由 _log_signal 跨线程 queued 调用，
         因此可以安全操作 QPlainTextEdit。
@@ -1294,17 +1361,24 @@ class RsyncPlugin(QWidget):
         Args:
             message: 日志消息字符串
         """
-        if hasattr(self, 'log_text') and self.log_text is not None:
-            self.log_text.appendPlainText(message)
-            cursor = self.log_text.textCursor()
-            cursor.movePosition(QTextCursor.MoveOperation.End)
-            self.log_text.setTextCursor(cursor)
+        if hasattr(self, 'log_window') and self.log_window is not None:
+            self.log_window.append(message)
         else:
             print(message, file=sys.stderr)
 
     def clear_log(self):
         """清空日志显示。"""
-        self.log_text.clear()
+        if hasattr(self, 'log_window') and self.log_window is not None:
+            self.log_window.clear_log()
+
+    def open_log_window(self):
+        """打开独立日志窗口（置顶显示）。
+
+        点击「日志」按钮调用；窗口已打开时置前并获取焦点，
+        窗口关闭（隐藏）后再次点击可重新打开。
+        """
+        if hasattr(self, 'log_window') and self.log_window is not None:
+            self.log_window.show_and_raise()
 
     def _browse_dir(self, edit_widget):
         """打开目录选择对话框。
@@ -2019,6 +2093,10 @@ class RsyncPlugin(QWidget):
         扫描范围、文件管理器路径/目标IP/--delete勾选、命令历史、模式、日志折叠状态、
         部署脚本路径（脚本内容本身保存在 scripts/*.json 中）。
         """
+        # 关闭独立日志窗口（closeEvent 内 hide，不销毁）
+        if hasattr(self, 'log_window') and self.log_window is not None:
+            self.log_window.close()
+
         # 关闭所有缓存的交互式 SSH 会话
         self._close_all_shells()
 
