@@ -14,6 +14,290 @@ import threading
 import ipaddress
 import shutil
 import os
+import pty
+import select
+import time
+import re
+
+
+class InteractiveShell:
+    """交互式 SSH Shell 会话 — 保持指令连续性。
+
+    使用 PTY (伪终端) 打开一个长期存活的 ssh 进程，所有命令通过同一个
+    shell 会话发送，因此 cd / export / source 等操作的效果会持续到下一条命令。
+
+    典型用法:
+        shell = InteractiveShell('user', 'pass', '10.8.30.14')
+        shell.send_command('cd /tmp')      # 切到 /tmp
+        shell.send_command('ls')            # 显示 /tmp 的内容（连续性）
+        shell.send_command('pwd')           # 输出 /tmp
+        shell.close()
+
+    线程安全：内部有锁，但建议同一时刻只有一个线程发送命令。
+    """
+
+    # 命令完成后打印的标记（用于检测输出结束 + 提取返回码）
+    _MARKER = '__SHELL_MARKER_RC__'
+
+    def __init__(self, username, password, ip, port=22, connect_timeout=15):
+        """初始化交互式 SSH 会话。
+
+        Args:
+            username: SSH 用户名
+            password: SSH 密码
+            ip: 目标 IP
+            port: SSH 端口
+            connect_timeout: 连接超时（秒）
+
+        Raises:
+            RuntimeError: 连接失败或密码认证失败
+        """
+        self.username = username
+        self.password = password
+        self.ip = ip
+        self.port = port
+        self._closed = False
+        self._lock = threading.Lock()
+
+        # 创建 PTY
+        self.master_fd, self.slave_fd = pty.openpty()
+
+        # 启动 ssh 进程（绑定到 PTY 的 slave 端）
+        ssh_args = [
+            'ssh',
+            '-o', 'StrictHostKeyChecking=no',
+            '-o', 'UserKnownHostsFile=/dev/null',
+            '-o', f'ConnectTimeout={min(connect_timeout, 10)}',
+            '-p', str(port),
+            f'{username}@{ip}',
+        ]
+        try:
+            self.proc = subprocess.Popen(
+                ssh_args,
+                stdin=self.slave_fd,
+                stdout=self.slave_fd,
+                stderr=self.slave_fd,
+                close_fds=True,
+            )
+        except Exception as e:
+            os.close(self.master_fd)
+            os.close(self.slave_fd)
+            raise RuntimeError(f'启动 ssh 失败: {e}')
+
+        # 关闭 slave 端（父进程不需要）
+        os.close(self.slave_fd)
+
+        # 等待密码提示并输入密码
+        if not self._handle_password(connect_timeout):
+            self.close()
+            raise RuntimeError(f'SSH 连接失败: {ip}（密码错误或连接超时）')
+
+        # 设置一个独特的 PS1，便于检测命令结束
+        self._prompt_marker = f'__SHELL_PROMPT_{id(self)}__'
+        self._send_raw(f'export PS1="{self._prompt_marker}"\n')
+        # 等待第一次 prompt 出现（消费掉初始输出）
+        self._read_until(self._prompt_marker, timeout=5)
+
+    # ------------------------------------------------------------------
+    # 内部 PTY 读写
+    # ------------------------------------------------------------------
+
+    def _send_raw(self, data: str):
+        """直接写入 PTY master（不加锁，内部辅助方法）。"""
+        os.write(self.master_fd, data.encode('utf-8'))
+
+    def _read_until(self, pattern: str, timeout=30) -> str:
+        """从 PTY 读取数据，直到看到 pattern 或超时。
+
+        Args:
+            pattern: 要匹配的字符串
+            timeout: 超时秒数
+
+        Returns:
+            str: 读到的所有输出（包含 pattern 之前的所有内容）
+        """
+        buf = b''
+        deadline = time.monotonic() + timeout
+        pattern_bytes = pattern.encode('utf-8')
+
+        while time.monotonic() < deadline:
+            # 检查是否有数据可读
+            rlist, _, _ = select.select([self.master_fd], [], [], 0.2)
+            if rlist:
+                try:
+                    chunk = os.read(self.master_fd, 4096)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                buf += chunk
+                if pattern_bytes in buf:
+                    break
+            # 检查 ssh 进程是否已退出
+            if self.proc.poll() is not None:
+                # 读完剩余输出
+                try:
+                    while True:
+                        rlist, _, _ = select.select([self.master_fd], [], [], 0.1)
+                        if rlist:
+                            chunk = os.read(self.master_fd, 4096)
+                            if not chunk:
+                                break
+                            buf += chunk
+                        else:
+                            break
+                except OSError:
+                    pass
+                break
+
+        return buf.decode('utf-8', errors='replace')
+
+    def _handle_password(self, timeout=15) -> bool:
+        """等待密码提示并输入密码。
+
+        Returns:
+            bool: 认证是否成功（成功 = 收到了 shell 输出而非再次密码提示）
+        """
+        buf = b''
+        deadline = time.monotonic() + timeout
+
+        while time.monotonic() < deadline:
+            rlist, _, _ = select.select([self.master_fd], [], [], 0.5)
+            if rlist:
+                try:
+                    chunk = os.read(self.master_fd, 4096)
+                except OSError:
+                    return False
+                if not chunk:
+                    return False
+                buf += chunk
+                text = buf.decode('utf-8', errors='replace').lower()
+
+                # 密码提示
+                if 'password:' in text or 'passwd:' in text:
+                    self._send_raw(self.password + '\n')
+                    # 等待一小段时间看是否认证成功
+                    time.sleep(1.5)
+                    # 读取后续输出
+                    more = self._read_until('__dummy_never_match__', timeout=3)
+                    more_lower = more.lower()
+                    # 如果又出现了 password 提示，说明密码错误
+                    if 'permission denied' in more_lower or 'password:' in more_lower:
+                        return False
+                    return True
+
+                # 可能是 yes/no 提示（首次连接）
+                if 'are you sure you want to continue connecting' in text or 'yes/no' in text:
+                    self._send_raw('yes\n')
+                    buf = b''
+                    continue
+
+                # 已经有 shell 输出了（可能用了 key-based auth 或已经登录）
+                if '$' in text or '#' in text or '%' in text:
+                    return True
+
+            # ssh 进程退出
+            if self.proc.poll() is not None:
+                return False
+
+        return False
+
+    # ------------------------------------------------------------------
+    # 公开 API
+    # ------------------------------------------------------------------
+
+    def send_command(self, command: str, timeout=30) -> tuple:
+        """在交互式 shell 中执行一条命令。
+
+        因为 shell 是持续的，cd / export / source 等的效果会保留到后续命令。
+
+        Args:
+            command: 要执行的命令
+            timeout: 超时秒数
+
+        Returns:
+            tuple: (return_code, stdout) — return_code 为 int，stdout 为命令输出文本
+        """
+        if self._closed:
+            return -1, '会话已关闭'
+
+        with self._lock:
+            # 发送命令 + 标记行（通过 echo 打印返回码和标记）
+            # 用 ; 分隔确保即使命令本身失败也能拿到 RC
+            full_cmd = f'{command}\n'
+            self._send_raw(full_cmd)
+
+            # 立即发送标记命令（单独一行，获取上一条命令的 $?）
+            marker_cmd = f'echo {self._MARKER}=$?\n'
+            self._send_raw(marker_cmd)
+
+            # 读取直到看到标记
+            output = self._read_until(self._MARKER, timeout=timeout)
+
+            # 提取返回码
+            rc = -1
+            rc_match = re.search(rf'{self._MARKER}=(\d+)', output)
+            if rc_match:
+                rc = int(rc_match.group(1))
+
+            # 清理输出：
+            # 1. 去掉命令回显行（第一行通常是用户输入的命令回显）
+            # 2. 去掉标记行
+            # 3. 去掉 prompt marker
+            lines = output.split('\n')
+            cleaned = []
+            skip_first_echo = True
+            for line in lines:
+                if skip_first_echo:
+                    # 跳过命令回显（通常是第一行包含命令文本）
+                    if command.strip() in line:
+                        skip_first_echo = False
+                        continue
+                    else:
+                        skip_first_echo = False
+                if self._MARKER in line:
+                    continue
+                if self._prompt_marker in line:
+                    continue
+                if line.strip() == f'echo {self._MARKER}=$?':
+                    continue
+                cleaned.append(line)
+
+            # 去掉首尾空行
+            stdout = '\n'.join(cleaned).strip()
+            return rc, stdout
+
+    def close(self):
+        """关闭交互式 shell 会话。"""
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self._send_raw('exit\n')
+        except OSError:
+            pass
+        try:
+            self.proc.wait(timeout=3)
+        except Exception:
+            try:
+                self.proc.kill()
+            except Exception:
+                pass
+        try:
+            os.close(self.master_fd)
+        except OSError:
+            pass
+
+    @property
+    def is_alive(self) -> bool:
+        """会话是否仍然存活。"""
+        return not self._closed and self.proc.poll() is None
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
 
 
 def check_expect():
@@ -109,14 +393,22 @@ class SSHManager:
         port: SSH端口，默认22
     """
 
-    def __init__(self, username='gdlocal', password='gdlocal', port=22):
+    def __init__(self, username, password, port=22):
         """初始化SSH管理器。
 
+        凭据必须由上层显式传入（通常从 RsyncConfig 读取）。
+        禁止在本模块中硬编码项目特定的用户名/密码默认值，
+        确保所有配置都通过配置文件统一管理，便于分发「打开即用」。
+
         Args:
-            username: SSH用户名
-            password: SSH密码
-            port: SSH端口号
+            username: SSH用户名（必填）
+            password: SSH密码（必填）
+            port: SSH端口号，默认 22（SSH标准端口）
         """
+        if not username:
+            raise ValueError('SSHManager: username 不能为空，请在配置文件中设置 ssh.username')
+        if not password:
+            raise ValueError('SSHManager: password 不能为空，请在配置文件中设置 ssh.password')
         self.username = username
         self.password = password
         self.port = port

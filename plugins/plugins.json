@@ -1,3 +1,3 @@
 {
-    "plugins": ["rsync","qt_study","Waveform","MIX_debug"]
+    "plugins": ["rsync","Waveform","MIX_debug"]
 }

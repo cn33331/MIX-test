@@ -1,12 +1,12 @@
 """FFT频谱分析模块。
 
-提供电压信号的FFT频谱分析功能，支持三种算法：Apple算法、Fixture算法和Fixture_plus算法。
+提供电压信号的FFT频谱分析功能，支持两种算法：Fixture算法和Fixture_plus算法。
 
 算法架构说明：
 ===============
 
-本模块包含三种独立的FFT分析算法，用于从电压数据中提取任意频率的幅值和功率(dBm)。
-三种算法的核心流程均包含两个阶段：
+本模块包含两种独立的FFT分析算法，用于从电压数据中提取任意频率的幅值和功率(dBm)。
+两种算法的核心流程均包含两个阶段：
     1. 电压原始数据 → 任意频率电压幅值（FFT变换 + 幅值提取）
     2. 电压幅值 → dBm功率值（功率计算公式）
 
@@ -59,39 +59,18 @@
     - get_fundamental_volt()  : 统一入口函数，selected_radio_vpp="fixture" 时使用
 
 ----------------------------------------------------------------------
-算法三：Apple 算法
-----------------------------------------------------------------------
-特点：
-    - 直接使用scipy.fft进行标准FFT变换
-    - 不使用窗函数，直接计算频谱
-    - 通过最近邻索引查找目标频率的幅值
-    - 实现简单，计算速度快
-
-核心函数：
-    第一阶段（原始数据 → 幅值）：
-        - calculate_fft()         : 标准FFT频谱计算（正频率 + 幅值归一化）
-        - get_dbm_by_frequency()  : 指定频率dBm查询
-        - get_fundamental_volt_apple() : Apple算法指定频率电压提取
-
-    第二阶段（幅值 → dBm）：
-        - voltage_to_dbm_apple()  : Apple算法电压转dBm（标准50Ω阻抗公式）
-
-调用入口：
-    - get_fundamental_volt()  : 统一入口函数，selected_radio_vpp="apple" 时使用
-
-----------------------------------------------------------------------
 算法对比总结：
 ----------------------------------------------------------------------
-| 特性            | Fixture_plus 算法          | Fixture 算法               | Apple 算法                  |
-|-----------------|---------------------------|---------------------------|---------------------------|
-| 窗函数          | 5种（矩形/平顶/汉宁/布莱克曼/Nuttall） | 3种（平顶/汉宁/布莱克曼） | 无                        |
-| 基频检测        | 四阶插值精确定位           | 二次插值                   | 最近邻查找                 |
-| 幅值精度        | 最高                      | 高                        | 中                        |
-| THD/THD+N       | 完整实现                   | 未实现                    | 未实现                    |
-| AC/DC参数       | 支持                      | 未支持                    | 未支持                    |
-| 计算复杂度      | 较高                      | 较高                      | 较低                      |
-| 适用场景        | 精确测量+信号质量分析      | 精确幅值测量               | 快速频谱分析               |
-| 推荐使用        | 是（默认）                 | 否                        | 否                        |
+| 特性            | Fixture_plus 算法          | Fixture 算法               |
+|-----------------|---------------------------|---------------------------|
+| 窗函数          | 5种（矩形/平顶/汉宁/布莱克曼/Nuttall） | 3种（平顶/汉宁/布莱克曼） |
+| 基频检测        | 四阶插值精确定位           | 二次插值                   |
+| 幅值精度        | 最高                      | 高                        |
+| THD/THD+N       | 完整实现                   | 未实现                    |
+| AC/DC参数       | 支持                      | 未支持                    |
+| 计算复杂度      | 较高                      | 较高                      |
+| 适用场景        | 精确测量+信号质量分析      | 精确幅值测量               |
+| 推荐使用        | 是（默认）                 | 否                        |
 
 公共模块：
     - 窗函数：rectangular_window(), hanning_window(), blackman_harris_window(), flattop_window(), nuttall_window()
@@ -102,7 +81,7 @@
 import math
 import csv
 import numpy as np
-from scipy.fft import fft, fftfreq
+from scipy.fft import fft
 
 
 def rectangular_window(n):
@@ -716,7 +695,7 @@ def analyzer_plus(raw_voltage, sample_rate, window_type=1, bandwidth_hz=None, ha
 
 
 def get_fundamental_volt_Fixture_plus(csv_path, sample_rate, window_type, start_frep, end_frep, step_frep,
-                                      gain=1, impedance=50, cal_constant=10.79, selected_radio_dbm="fixture"):
+                                      gain=1, impedance=50, cal_constant=10.79, offset=0.0):
     """使用Fixture_plus算法计算指定频率范围内的电压幅值和dBm（与OC对齐）。
 
     对指定频率范围内的每个频率点，使用窗函数FFT、四阶插值基频检测和
@@ -734,7 +713,7 @@ def get_fundamental_volt_Fixture_plus(csv_path, sample_rate, window_type, start_
         gain (float, optional): 增益系数。默认值为 1。
         impedance (float, optional): 负载阻抗（Ω）。默认值为 50。
         cal_constant (float, optional): 校准常数。默认值为 10.79。
-        selected_radio_dbm (str, optional): dBm计算方式。默认值为 "fixture"。
+        offset (float, optional): dBm偏移量。默认值为 0.0。
 
     Returns:
         dict or None: 以频率为键的字典，每个值包含：
@@ -768,10 +747,7 @@ def get_fundamental_volt_Fixture_plus(csv_path, sample_rate, window_type, start_
         )
         fundamental_voltage *= compensation * 2 / size_n
 
-        if selected_radio_dbm == "fixture":
-            dbm_value = voltage_to_dbm_Fixture(fundamental_voltage, gain, impedance, cal_constant)
-        else:
-            dbm_value = voltage_to_dbm_apple(fundamental_voltage, gain, impedance, cal_constant)
+        dbm_value = voltage_to_dbm_Fixture(fundamental_voltage, gain, impedance, cal_constant, offset)
 
         if dbm_value is not None:
             fundamental_volt_dict[idx_frep] = {
@@ -784,45 +760,11 @@ def get_fundamental_volt_Fixture_plus(csv_path, sample_rate, window_type, start_
     return fundamental_volt_dict
 
 
-def voltage_to_dbm_apple(voltage_amplitude, gain=1.0, impedance=50, cal_constant=10.79):
-    """由电压幅值计算dBm值（Apple标准算法）。
-
-    假设信号为正弦波，先将幅值转换为有效值，再根据负载阻抗计算功率，
-    最后转换为dBm值。公式：dBm = 10 * log10(Vrms² / R * 1000)
-
-    **算法归属**：Apple 算法核心函数（第二阶段：幅值 → dBm）
-
-    Args:
-        voltage_amplitude (float): 电压幅值（V）。
-        gain (float, optional): 增益系数。默认值为 1.0。
-        impedance (float, optional): 负载阻抗（Ω）。默认值为 50。
-        cal_constant (float, optional): 校准常数。默认值为 10.79。
-
-    Returns:
-        float or None: 计算得到的dBm值，输入无效时返回 None。
-
-    Example:
-        >>> dbm = voltage_to_dbm_apple(1.0, impedance=50)
-        >>> print(f"功率: {dbm} dBm")
-
-    Warning:
-        电压幅值或阻抗必须为正值，否则返回 None。
-    """
-    if voltage_amplitude <= 0 or impedance <= 0:
-        print("dbm计算失败：电压幅值或阻抗不能为非正值")
-        return None
-    rms_voltage = voltage_amplitude / math.sqrt(2)
-    power_watt = (rms_voltage ** 2) / impedance
-    power_mw = power_watt * 1000
-    dbm = 10 * math.log10(power_mw)
-    return dbm
-
-
-def voltage_to_dbm_Fixture(voltage_amplitude, gain=1.0, impedance=50, cal_constant=10.79):
+def voltage_to_dbm_Fixture(voltage_amplitude, gain=1.0, impedance=50, cal_constant=10.79, offset=0.0):
     """由电压幅值计算dBm值（Fixture兼容算法）。
 
     兼容Lua逻辑的dBm计算方法，包含增益修正和硬件校准常数。
-    公式：dBm = 20 * log10(Vrms) + cal_constant
+    公式：dBm = 20 * log10(Vrms) + cal_constant + offset
 
     **算法归属**：Fixture 算法核心函数（第二阶段：幅值 → dBm）
 
@@ -831,6 +773,7 @@ def voltage_to_dbm_Fixture(voltage_amplitude, gain=1.0, impedance=50, cal_consta
         gain (float, optional): 硬件增益系数。默认值为 1.0。
         impedance (float, optional): 负载阻抗（Ω）。默认值为 50。
         cal_constant (float, optional): 校准常数。默认值为 10.79。
+        offset (float, optional): dBm偏移量。默认值为 0.0。
 
     Returns:
         float or None: 计算得到的dBm值，输入无效时返回 None。
@@ -838,6 +781,7 @@ def voltage_to_dbm_Fixture(voltage_amplitude, gain=1.0, impedance=50, cal_consta
     Example:
         >>> dbm = voltage_to_dbm_Fixture(1.0, gain=1.0, cal_constant=10.79)
         >>> print(f"功率: {dbm} dBm")
+        >>> dbm = voltage_to_dbm_Fixture(1.0, gain=1.0, cal_constant=10.79, offset=0.5)
 
     Warning:
         电压幅值或阻抗必须为正值，否则返回 None。
@@ -847,95 +791,12 @@ def voltage_to_dbm_Fixture(voltage_amplitude, gain=1.0, impedance=50, cal_consta
         return None
     calibrated_amplitude = voltage_amplitude * gain
     rms_voltage = calibrated_amplitude / math.sqrt(2)
-    dbm = 20 * math.log10(rms_voltage) + cal_constant
+    dbm = 20 * math.log10(rms_voltage) + cal_constant + offset
     return dbm
 
 
-def calculate_fft(csv_path, sample_rate, impedance, selected_radio_dbm="apple"):
-    """计算CSV数据的完整FFT频谱。
-
-    读取CSV文件中的电压数据，执行FFT变换，计算正频率部分的
-    幅值和dBm值。
-
-    **算法归属**：Apple 算法核心函数（第一阶段：原始数据 → 幅值）
-
-    Args:
-        csv_path (str): CSV文件路径。
-        sample_rate (float): 采样率（Hz）。
-        impedance (float): 负载阻抗（Ω）。
-        selected_radio_dbm (str, optional): dBm计算方式：
-            - "apple": Apple标准算法（默认）
-            - "fixture": Fixture兼容算法
-
-    Returns:
-        tuple: 包含以下元素的元组：
-            - xf_positive (numpy.ndarray): 正频率数组（Hz）。
-            - yf_dbm (numpy.ndarray): 正频率对应的dBm值数组。
-            - yf_positive (numpy.ndarray): 正频率对应的电压幅值数组。
-
-    Example:
-        >>> freqs, dbms, volts = calculate_fft("data.csv", 125000000, 50)
-        >>> print(f"频率范围: {freqs[0]} - {freqs[-1]} Hz")
-    """
-    voltages = read_voltage_from_csv(csv_path)
-    N = len(voltages)
-    yf = fft(voltages)
-    xf = fftfreq(N, 1 / sample_rate)
-
-    positive_freq_mask = xf >= 0
-    xf_positive = xf[positive_freq_mask]
-    yf_positive = 2.0 / N * np.abs(yf[positive_freq_mask])
-    if selected_radio_dbm == "apple":
-        yf_dbm = np.array([voltage_to_dbm_apple(v, impedance) for v in yf_positive])
-    else:
-        yf_dbm = np.array([voltage_to_dbm_Fixture(v, impedance) for v in yf_positive])
-    return xf_positive, yf_dbm, yf_positive
-
-
-def get_dbm_by_frequency(csv_path, sample_rate, impedance, target_freq, selected_radio_dbm="apple"):
-    """获取指定频率处的dBm值和电压幅值。
-
-    对CSV数据执行FFT分析，找到与目标频率最接近的频点，
-    返回对应的dBm值和电压幅值。
-
-    Args:
-        csv_path (str): CSV文件路径。
-        sample_rate (float): 采样率（Hz）。
-        impedance (float): 负载阻抗（Ω）。
-        target_freq (float): 目标频率（Hz）。
-        selected_radio_dbm (str, optional): dBm计算方式：
-            - "apple": Apple标准算法（默认）
-            - "fixture": Fixture兼容算法
-
-    Returns:
-        tuple: 包含以下元素的元组：
-            - target_dbm (float): 目标频率处的dBm值。
-            - target_Vpp (float): 目标频率处的电压幅值（V）。
-
-    Example:
-        >>> dbm, vpp = get_dbm_by_frequency(
-        ...     "data.csv", 125000000, 50, 112000)
-        >>> print(f"{dbm:.2f} dBm, {vpp:.3f} V")
-    """
-    xf_positive, yf_dbm, yf_positive = calculate_fft(csv_path, sample_rate, impedance, selected_radio_dbm)
-    closest_idx = np.argmin(np.abs(xf_positive - target_freq))
-    closest_freq = xf_positive[closest_idx]
-    target_dbm = yf_dbm[closest_idx]
-    target_Vpp = yf_positive[closest_idx]
-
-    print(f"===============================================")
-    print(selected_radio_dbm)
-    print(f"目标频率：{target_freq:.2f} Hz")
-    print(f"FFT 中最接近的频率：{closest_freq:.2f} Hz")
-    print(f"对应 dBm 值：{target_dbm:.2f} dBm")
-    print(f"对应 幅值：{target_Vpp:.2f} V")
-    print(f"===============================================")
-
-    return target_dbm, target_Vpp
-
-
 def get_fundamental_volt_Fixture(csv_path, sample_rate, window_type, start_frep, end_frep, step_frep,
-                                 gain=1, impedance=50, cal_constant=10.79, selected_radio_dbm="fixture"):
+                                 gain=1, impedance=50, cal_constant=10.79, offset=0.0):
     """使用Fixture算法计算指定频率范围内的电压幅值和dBm。
 
     对指定频率范围内的每个频率点，使用窗函数FFT和插值算法
@@ -951,7 +812,7 @@ def get_fundamental_volt_Fixture(csv_path, sample_rate, window_type, start_frep,
         gain (float, optional): 增益系数。默认值为 1。
         impedance (float, optional): 负载阻抗（Ω）。默认值为 50。
         cal_constant (float, optional): 校准常数。默认值为 10.79。
-        selected_radio_dbm (str, optional): dBm计算方式。默认值为 "fixture"。
+        offset (float, optional): dBm偏移量。默认值为 0.0。
 
     Returns:
         dict or None: 以频率为键的字典，每个值包含：
@@ -981,10 +842,7 @@ def get_fundamental_volt_Fixture(csv_path, sample_rate, window_type, start_frep,
             fft_magnitude, idx_frep, size_n, sample_rate
         )
         fundamental_voltage *= compensation * 2 / size_m
-        if selected_radio_dbm == "fixture":
-            dbm_value = voltage_to_dbm_Fixture(fundamental_voltage, gain, impedance, cal_constant)
-        else:
-            dbm_value = voltage_to_dbm_apple(fundamental_voltage, gain, impedance, cal_constant)
+        dbm_value = voltage_to_dbm_Fixture(fundamental_voltage, gain, impedance, cal_constant, offset)
         if dbm_value != None:
             fundamental_volt_dict[idx_frep] = {}
             fundamental_volt_dict[idx_frep]["volt"] = fundamental_voltage
@@ -995,64 +853,9 @@ def get_fundamental_volt_Fixture(csv_path, sample_rate, window_type, start_frep,
     return fundamental_volt_dict
 
 
-def get_fundamental_volt_apple(csv_path, sample_rate, window_type, start_frep, end_frep, step_frep,
-                               gain=1, impedance=50, cal_constant=10.79, selected_radio_dbm="apple"):
-    """使用Apple算法计算指定频率范围内的电压幅值和dBm。
-
-    对指定频率范围内的每个频率点，使用标准FFT取最近频点的方式
-    计算电压幅值和dBm值。
-
-    Args:
-        csv_path (str): CSV文件路径。
-        sample_rate (float): 采样率（Hz）。
-        window_type (int): 窗函数类型（保留参数，实际未使用）。
-        start_frep (int): 起始频率（Hz）。
-        end_frep (int): 结束频率（Hz）。
-        step_frep (int): 频率步进（Hz）。
-        gain (float, optional): 增益系数。默认值为 1。
-        impedance (float, optional): 负载阻抗（Ω）。默认值为 50。
-        cal_constant (float, optional): 校准常数。默认值为 10.79。
-        selected_radio_dbm (str, optional): dBm计算方式。默认值为 "apple"。
-
-    Returns:
-        dict or None: 以频率为键的字典，每个值包含：
-            - "volt" (float): 电压幅值（V）。
-            - "dbm" (float): dBm值。
-            参数错误时返回 None。
-
-    Example:
-        >>> result = get_fundamental_volt_apple(
-        ...     "data.csv", 125000000, 1, 100000, 200000, 10000)
-        >>> for freq, data in result.items():
-        ...     print(f"{freq} Hz: {data['volt']:.3f} V, {data['dbm']:.1f} dBm")
-    """
-    try:
-        start_idx = int(start_frep)
-        end_idx = int(end_frep)
-        step = int(step_frep)
-    except ValueError:
-        print("错误：起始/结束点必须是整数！")
-        return None
-    fundamental_volt_dict = {}
-    print(f"频率,电压幅值,dbm")
-    xf_positive, yf_dbm, yf_positive = calculate_fft(csv_path, sample_rate, impedance, selected_radio_dbm)
-    for idx_frep in range(start_idx, end_idx, step):
-        closest_idx = np.argmin(np.abs(xf_positive - idx_frep))
-        closest_freq = xf_positive[closest_idx]
-        dbm_value = yf_dbm[closest_idx]
-        fundamental_voltage = yf_positive[closest_idx]
-        fundamental_volt_dict[idx_frep] = {}
-        fundamental_volt_dict[idx_frep]["volt"] = fundamental_voltage
-        fundamental_volt_dict[idx_frep]["dbm"] = dbm_value
-
-        print(f"{idx_frep},{fundamental_voltage},{dbm_value}")
-
-    return fundamental_volt_dict
-
-
 def get_fundamental_volt(csv_path, sample_rate, window_type, start_frep, end_frep, step_frep,
-                         gain=1, impedance=50, cal_constant=10.79,
-                         selected_radio_vpp="fixture_plus", selected_radio_dbm="fixture"):
+                         gain=1, impedance=50, cal_constant=10.79, offset=0.0,
+                         selected_radio_vpp="fixture_plus"):
     """计算指定频率范围内的电压幅值和dBm（统一入口）。
 
     根据选择的算法类型，调用对应的计算函数获取频率范围内的
@@ -1068,11 +871,10 @@ def get_fundamental_volt(csv_path, sample_rate, window_type, start_frep, end_fre
         gain (float, optional): 增益系数。默认值为 1。
         impedance (float, optional): 负载阻抗（Ω）。默认值为 50。
         cal_constant (float, optional): 校准常数。默认值为 10.79。
+        offset (float, optional): dBm偏移量。默认值为 0.0。
         selected_radio_vpp (str, optional): 电压幅值算法：
             - "fixture_plus": Fixture_plus算法（默认，与OC对齐，支持5种窗函数、四阶插值基频检测、THD/THD+N分析）
             - "fixture": Fixture算法（原版本，支持3种窗函数、二次插值）
-            - 其他值: Apple算法（使用标准FFT，最近邻查找）
-        selected_radio_dbm (str, optional): dBm计算方式。默认值为 "fixture"。
 
     Returns:
         dict or None: 以频率为键的结果字典，失败时返回 None。
@@ -1085,15 +887,11 @@ def get_fundamental_volt(csv_path, sample_rate, window_type, start_frep, end_fre
     if selected_radio_vpp == "fixture_plus":
         return get_fundamental_volt_Fixture_plus(csv_path, sample_rate, window_type,
                                                  start_frep, end_frep, step_frep,
-                                                 gain, impedance, cal_constant, "fixture")
-    elif selected_radio_vpp == "fixture":
+                                                 gain, impedance, cal_constant, offset)
+    else:
         return get_fundamental_volt_Fixture(csv_path, sample_rate, window_type,
                                             start_frep, end_frep, step_frep,
-                                            gain, impedance, cal_constant, "fixture")
-    else:
-        return get_fundamental_volt_apple(csv_path, sample_rate, window_type,
-                                          start_frep, end_frep, step_frep,
-                                          gain, impedance, cal_constant, "apple")
+                                            gain, impedance, cal_constant, offset)
 
 
 def main_fixture_plus():
@@ -1112,7 +910,8 @@ def main_fixture_plus():
     print("=" * 60)
 
     print("\n1. 基础幅值计算：")
-    get_fundamental_volt(csv_path, sample_rate, window_type, 100000, 238000, 1000, 1, 50, 10.79, "fixture_plus")
+    get_fundamental_volt(csv_path, sample_rate, window_type, 100000, 238000, 1000,
+                         1, 50, 10.79, selected_radio_vpp="fixture_plus")
 
     print("\n2. 完整信号分析（analyzer_plus）：")
     raw_voltage = read_voltage_from_csv(csv_path)

@@ -28,14 +28,22 @@ class RsyncManager:
         port: SSH端口，默认22
     """
 
-    def __init__(self, username='gdlocal', password='gdlocal', port=22):
+    def __init__(self, username, password, port=22):
         """初始化Rsync管理器。
 
+        凭据必须由上层显式传入（通常从 RsyncConfig 读取）。
+        禁止在本模块中硬编码项目特定的用户名/密码默认值，
+        确保所有配置都通过配置文件统一管理，便于分发「打开即用」。
+
         Args:
-            username: SSH用户名
-            password: SSH密码
-            port: SSH端口号
+            username: SSH用户名（必填）
+            password: SSH密码（必填）
+            port: SSH端口号，默认 22（SSH标准端口）
         """
+        if not username:
+            raise ValueError('RsyncManager: username 不能为空，请在配置文件中设置 ssh.username')
+        if not password:
+            raise ValueError('RsyncManager: password 不能为空，请在配置文件中设置 ssh.password')
         self.username = username
         self.password = password
         self.port = port

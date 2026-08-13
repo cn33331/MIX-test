@@ -2,246 +2,152 @@
 # -*- coding: utf-8 -*-
 
 """
-配置管理模块 - 负责插件配置的加载、保存和配置界面
+配置管理模块 - 负责 Rsync 插件配置的加载与保存。
 
-提供JSON格式的配置持久化，以及设备配置对话框。
-配置内容包括：用户名、密码、端口、设备IP列表、同步路径等。
+继承通用基类 `utils.json_config.BaseJsonConfig`，在其上补充
+SSH 凭据、设备列表、命令历史等 Rsync 特有便捷方法。
+所有默认配置定义在 config.default.json 中，随插件目录分发。
 """
 
 import json
 import os
+from typing import List, Optional, Tuple
 
-from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QLineEdit,
-    QPushButton, QListWidget, QListWidgetItem, QGroupBox, QMessageBox,
-    QSpinBox, QCheckBox, QWidget
-)
-from PyQt6.QtCore import Qt
+from utils.json_config import BaseJsonConfig, deep_merge
 
 
-def get_default_config():
-    """返回默认配置字典。
+PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_DEFAULT_PATH = os.path.join(PLUGIN_DIR, 'config.default.json')
+CONFIG_LOCAL_PATH = os.path.join(PLUGIN_DIR, 'config.json')
 
-    Returns:
-        dict: 默认配置
-    """
-    return {
+
+# 代码内嵌兜底默认值：无任何配置文件时保证最小可用
+_FALLBACK_CONFIG = {
+    'ssh': {
         'username': 'gdlocal',
         'password': 'gdlocal',
         'port': 22,
-        'scan_range': '10.8.30.14-23',
-        'devices': [],
-        'push_local_path': '',
-        'push_remote_path': '/vault/ZJX_backup',
-        'pull_remote_path': '',
-        'pull_local_path': '',
-    }
+    },
+    'scan': {
+        'range': '10.8.30.14-23',
+    },
+    'paths': {
+        'deploy_script_path': '',
+    },
+    'sync': {
+        'push_delete': False,
+        'pull_delete': False,
+    },
+    'devices': [],
+    'command_history': [],
+    'ui': {
+        'log_expanded': True,
+        'last_mode': 1,  # 0=调试模式 1=一键自动部署，默认打开直接进入部署模式
+    },
+}
 
 
-class RsyncConfig:
+def get_default_config() -> dict:
+    """从 config.default.json 加载默认配置字典（保持向后兼容）。
+
+    与 BaseJsonConfig.get_default_config() 逻辑一致：代码兜底 + 模板文件
+    深度合并；文件缺失或解析失败时静默回退。保留此模块级函数是为了
+    兼容 rsync_plugin._update_managers 中的空值兜底调用。
+
+    Returns:
+        dict: 默认配置（深拷贝，修改不影响内部状态）。
+    """
+    return deep_merge(
+        {}, deep_merge(_FALLBACK_CONFIG, _load_template_default())
+    )
+
+
+def _load_template_default() -> dict:
+    """读取模板默认配置文件 config.default.json。
+
+    Returns:
+        dict: 模板内容；文件缺失或解析失败返回空字典。
+    """
+    if os.path.exists(CONFIG_DEFAULT_PATH):
+        try:
+            with open(CONFIG_DEFAULT_PATH, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+
+class RsyncConfig(BaseJsonConfig):
     """Rsync插件配置管理器。
 
-    负责从JSON文件加载和保存配置。
-    优先使用宿主应用的config_manager，不可用时回退到插件本地配置文件。
+    继承通用基类 BaseJsonConfig，配置加载优先级与基类一致：
+    1. 插件目录内 config.json —— 随插件目录同步，给到其他人时「打开即用」
+    2. 宿主应用的 config_manager 配置目录（可选兼容）
+    3. 插件目录内 config.default.json —— 模板默认值
+    4. 代码内嵌兜底默认值
 
     Attributes:
-        config: 当前配置字典
-        config_file: 配置文件路径
+        config: 当前配置字典（嵌套结构）。
+        config_file: 实际使用的配置文件路径（用于保存写入）。
     """
 
-    def __init__(self):
-        """初始化配置管理器，加载配置文件。"""
-        self.config = get_default_config()
-        self.config_file = self._get_config_path()
-        self.load()
+    def __init__(self) -> None:
+        """初始化配置管理器，按优先级加载配置文件。"""
+        super().__init__(
+            config_file=CONFIG_LOCAL_PATH,
+            default_config_path=CONFIG_DEFAULT_PATH,
+            fallback_config=_FALLBACK_CONFIG,
+        )
 
-    def _get_config_path(self):
-        """获取配置文件路径。
+    # ------------------------------------------------------------------
+    # SSH / Devices / CommandHistory 便捷方法
+    # ------------------------------------------------------------------
 
-        优先使用宿主应用的config目录，不可用时使用插件目录。
-
-        Returns:
-            str: 配置文件绝对路径
-        """
-        try:
-            from utils.config import config_manager
-            config_dir = config_manager.get_config_dir()
-        except Exception:
-            plugin_dir = os.path.dirname(os.path.abspath(__file__))
-            config_dir = os.path.join(plugin_dir, 'config')
-
-        os.makedirs(config_dir, exist_ok=True)
-        return os.path.join(config_dir, 'rsync_plugin_config.json')
-
-    def load(self):
-        """从文件加载配置。
-
-        文件不存在时使用默认配置。
-        """
-        if os.path.exists(self.config_file):
-            try:
-                with open(self.config_file, 'r', encoding='utf-8') as f:
-                    saved = json.load(f)
-                # 合并配置，确保新增字段有默认值
-                default = get_default_config()
-                default.update(saved)
-                self.config = default
-            except Exception:
-                self.config = get_default_config()
-        else:
-            self.config = get_default_config()
-
-    def save(self):
-        """保存配置到文件。
+    def get_ssh_credentials(self) -> Tuple[Optional[str], Optional[str], Optional[int]]:
+        """获取SSH连接凭据。
 
         Returns:
-            bool: 是否保存成功
+            tuple: (username, password, port) 三元组；
+                username/password 为字符串，port 为整数，缺失时为 None。
         """
-        try:
-            with open(self.config_file, 'w', encoding='utf-8') as f:
-                json.dump(self.config, f, ensure_ascii=False, indent=2)
-            return True
-        except Exception:
-            return False
+        return (
+            self.get('ssh.username'),
+            self.get('ssh.password'),
+            self.get('ssh.port'),
+        )
 
-    def get(self, key, default=None):
-        """获取配置项。
-
-        Args:
-            key: 配置键名
-            default: 默认值
-
-        Returns:
-            配置值
-        """
-        return self.config.get(key, default)
-
-    def set(self, key, value):
-        """设置配置项。
-
-        Args:
-            key: 配置键名
-            value: 配置值
-        """
-        self.config[key] = value
-
-    def get_devices(self):
+    def get_devices(self) -> list:
         """获取设备列表。
 
         Returns:
-            list: 设备字典列表，每个设备包含 ip, name(可选)
+            list: 设备字典列表，每个设备包含 ip、uname(可选)。
         """
         return self.config.get('devices', [])
 
-    def set_devices(self, devices):
-        """设置设备列表。
+    def set_devices(self, devices: list) -> None:
+        """设置设备列表并立即保存。
 
         Args:
-            devices: 设备字典列表
+            devices: 设备字典列表，元素格式与 get_devices() 返回一致。
         """
         self.config['devices'] = devices
         self.save()
 
+    def get_command_history(self) -> List[str]:
+        """获取已保存的命令历史列表。
 
-class ConfigDialog(QDialog):
-    """配置对话框 - 编辑SSH连接和同步配置。
+        Returns:
+            list[str]: 历史命令（最近一条在首位），最多 30 条；
+                返回副本，修改不影响内部状态。
+        """
+        return list(self.config.get('command_history', []))
 
-    提供用户名、密码、端口、扫描范围、同步路径等配置的编辑界面。
-    """
-
-    def __init__(self, config, parent=None):
-        """初始化配置对话框。
+    def set_command_history(self, commands: list) -> None:
+        """设置命令历史并立即保存，超出 30 条自动截断。
 
         Args:
-            config: RsyncConfig实例
-            parent: 父窗口
+            commands: 命令列表；列表长度超过 30 时仅保留前 30 条。
         """
-        super().__init__(parent)
-        self.config = config
-        self.setWindowTitle('配置')
-        self.setMinimumWidth(450)
-        self._init_ui()
-        self._load_config()
-
-    def _init_ui(self):
-        """初始化界面。"""
-        layout = QVBoxLayout(self)
-
-        # SSH连接配置组
-        ssh_group = QGroupBox('SSH连接配置')
-        ssh_layout = QFormLayout(ssh_group)
-
-        self.username_edit = QLineEdit()
-        ssh_layout.addRow('用户名:', self.username_edit)
-
-        self.password_edit = QLineEdit()
-        self.password_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        ssh_layout.addRow('密码:', self.password_edit)
-
-        self.port_spin = QSpinBox()
-        self.port_spin.setRange(1, 65535)
-        self.port_spin.setValue(22)
-        ssh_layout.addRow('SSH端口:', self.port_spin)
-
-        self.scan_range_edit = QLineEdit()
-        self.scan_range_edit.setPlaceholderText('如: 10.8.30.14-23 或 10.8.30.0/24')
-        ssh_layout.addRow('扫描范围:', self.scan_range_edit)
-
-        layout.addWidget(ssh_group)
-
-        # 同步路径配置组
-        path_group = QGroupBox('同步路径配置')
-        path_layout = QFormLayout(path_group)
-
-        self.push_local_edit = QLineEdit()
-        self.push_local_edit.setPlaceholderText('本地源路径')
-        path_layout.addRow('推送-本地路径:', self.push_local_edit)
-
-        self.push_remote_edit = QLineEdit()
-        self.push_remote_edit.setPlaceholderText('远程目标路径')
-        path_layout.addRow('推送-远程路径:', self.push_remote_edit)
-
-        self.pull_remote_edit = QLineEdit()
-        self.pull_remote_edit.setPlaceholderText('远程源路径')
-        path_layout.addRow('拉取-远程路径:', self.pull_remote_edit)
-
-        self.pull_local_edit = QLineEdit()
-        self.pull_local_edit.setPlaceholderText('本地目标路径')
-        path_layout.addRow('拉取-本地路径:', self.pull_local_edit)
-
-        layout.addWidget(path_group)
-
-        # 按钮区域
-        btn_layout = QHBoxLayout()
-        ok_btn = QPushButton('确定')
-        cancel_btn = QPushButton('取消')
-        ok_btn.clicked.connect(self._on_ok)
-        cancel_btn.clicked.connect(self.reject)
-        btn_layout.addStretch()
-        btn_layout.addWidget(ok_btn)
-        btn_layout.addWidget(cancel_btn)
-        layout.addLayout(btn_layout)
-
-    def _load_config(self):
-        """从配置加载到界面控件。"""
-        self.username_edit.setText(self.config.get('username', ''))
-        self.password_edit.setText(self.config.get('password', ''))
-        self.port_spin.setValue(self.config.get('port', 22))
-        self.scan_range_edit.setText(self.config.get('scan_range', ''))
-        self.push_local_edit.setText(self.config.get('push_local_path', ''))
-        self.push_remote_edit.setText(self.config.get('push_remote_path', ''))
-        self.pull_remote_edit.setText(self.config.get('pull_remote_path', ''))
-        self.pull_local_edit.setText(self.config.get('pull_local_path', ''))
-
-    def _on_ok(self):
-        """确定按钮处理，保存配置并关闭对话框。"""
-        self.config.set('username', self.username_edit.text().strip())
-        self.config.set('password', self.password_edit.text())
-        self.config.set('port', self.port_spin.value())
-        self.config.set('scan_range', self.scan_range_edit.text().strip())
-        self.config.set('push_local_path', self.push_local_edit.text().strip())
-        self.config.set('push_remote_path', self.push_remote_edit.text().strip())
-        self.config.set('pull_remote_path', self.pull_remote_edit.text().strip())
-        self.config.set('pull_local_path', self.pull_local_edit.text().strip())
-        self.config.save()
-        self.accept()
+        commands = list(commands)[:30]
+        self.config['command_history'] = commands
+        self.save()

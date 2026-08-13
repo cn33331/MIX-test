@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QSizePolicy, QCompleter, QMessageBox, QApplication,
                              QStylePainter, QStyleOptionFrame, QFileDialog)
 from PyQt6.QtCore import Qt, QPointF, QRectF
-from PyQt6.QtGui import QPainter, QPen, QColor, QFont, QPolygonF
+from PyQt6.QtGui import QPainter, QPen, QColor, QFont, QPolygonF, QPixmap
 
 import FFT
 import code_to_mvolt
@@ -1082,6 +1082,7 @@ class WaveformPlugin(QWidget):
         self.pushButton_csv.clicked.connect(self.analysis_csv)
         self.pushButton_time.clicked.connect(self.plot_voltage_range_waveform)
         self.pushButton_frep.clicked.connect(self.spectrum_diagram_waveform)
+        self.pushButton_dbm_help.clicked.connect(self.show_dbm_help)
 
     def get_widget(self):
         """获取插件的主窗口控件。
@@ -1094,6 +1095,35 @@ class WaveformPlugin(QWidget):
             >>> widget = plugin.get_widget()
         """
         return self
+
+    def show_dbm_help(self):
+        """弹出dbm计算逻辑介绍图片。
+
+        点击 ❓ dbm介绍 按钮时调用，以对话框形式展示 dbm.png
+        图片，说明dbm的计算逻辑。
+
+        Example:
+            >>> self.show_dbm_help()
+        """
+        img_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dbm.png")
+        if not os.path.exists(img_path):
+            QMessageBox.warning(self, "提示", f"未找到dbm介绍图片：{img_path}")
+            return
+        pixmap = QPixmap(img_path)
+        if pixmap.isNull():
+            QMessageBox.warning(self, "提示", f"无法加载dbm介绍图片：{img_path}")
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("dbm计算逻辑介绍")
+        label = QLabel()
+        label.setPixmap(pixmap)
+        scroll_area = QtWidgets.QScrollArea(dialog)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setWidget(label)
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(scroll_area)
+        dialog.resize(min(pixmap.width(), 900), min(pixmap.height(), 700))
+        dialog.exec()
 
     def get_name(self):
         """获取插件名称。
@@ -1202,35 +1232,24 @@ class WaveformPlugin(QWidget):
             load_impedance = float(self.lineEdit_impedance.text())
             cal_constant = float(self.lineEdit_cal_constant.text())
             gain = float(self.lineEdit_gain1.text())
+            offset = float(self.lineEdit_offset.text())
         except ValueError:
-            self.show_message("错误", "负载阻抗或校准常数或gain有误")
+            self.show_message("错误", "负载阻抗或校准常数或gain或offset有误")
             return
 
-        selected_radio_vpp = "fixture_plus"
-        selected_radio_dbm = "fixture"
-        if selected_radio_vpp == "apple":
-            dbm_value_1, fundamental_voltage = FFT.get_dbm_by_frequency(
-                csv_path, sample_rate, load_impedance,
-                float(self.comboBox_frep_1.currentText()), selected_radio_dbm)
-        else:
-            raw_voltage = FFT.read_voltage_from_csv(csv_path)
-            fft_result = FFT.fft_analysis(
-                raw_voltage, sample_rate, window_type,
-                float(self.comboBox_frep_1.currentText()))
-            fundamental_voltage = fft_result["fundamental_voltage"]
-            fundamental_freq = fft_result["fundamental_freq"]
-            fundamental_rms = fft_result["fundamental_rms"]
-            if selected_radio_dbm == "fixture":
-                dbm_value_1 = FFT.voltage_to_dbm_Fixture(
-                    fundamental_voltage, gain, load_impedance, cal_constant)
-            else:
-                dbm_value_1 = FFT.voltage_to_dbm_apple(
-                    fundamental_voltage, gain, load_impedance, cal_constant)
-            print(f"===============================================")
-            print(selected_radio_dbm)
-            print(f"对应 dBm 值：{dbm_value_1:.2f} dBm")
-            print(f"对应 幅值：{fundamental_voltage:.2f} V")
-            print(f"===============================================")
+        raw_voltage = FFT.read_voltage_from_csv(csv_path)
+        fft_result = FFT.fft_analysis(
+            raw_voltage, sample_rate, window_type,
+            float(self.comboBox_frep_1.currentText()))
+        fundamental_voltage = fft_result["fundamental_voltage"]
+        fundamental_freq = fft_result["fundamental_freq"]
+        fundamental_rms = fft_result["fundamental_rms"]
+        dbm_value_1 = FFT.voltage_to_dbm_Fixture(
+            fundamental_voltage, gain, load_impedance, cal_constant, offset)
+        print(f"===============================================")
+        print(f"对应 dBm 值：{dbm_value_1:.2f} dBm")
+        print(f"对应 幅值：{fundamental_voltage:.2f} V")
+        print(f"===============================================")
 
         self.textBrowser.append(f"FFT分析结果：")
         self.textBrowser.append(f"基频频率: {fundamental_freq:.9f} Hz")
@@ -1238,6 +1257,7 @@ class WaveformPlugin(QWidget):
         self.textBrowser.append(f"计算频率: {float(self.comboBox_frep_1.currentText()):.9f} Hz")
         self.textBrowser.append(f"该频率电压幅值: {fundamental_voltage:.9f} V")
         self.textBrowser.append(f"gain: {gain:.9f}")
+        self.textBrowser.append(f"offset: {offset:.9f}")
         if dbm_value_1 is not None:
             self.textBrowser.append(
                 f"频率-dbm计算结果（负载阻抗{load_impedance}Ω）：{dbm_value_1:.9f} dBm")
@@ -1394,20 +1414,18 @@ class WaveformPlugin(QWidget):
             load_impedance = float(self.lineEdit_impedance.text())
             cal_constant = float(self.lineEdit_cal_constant.text())
             gain = float(self.lineEdit_gain1.text())
+            offset = float(self.lineEdit_offset.text())
         except ValueError:
-            self.show_message("错误", "负载阻抗或校准常数或gain有误")
+            self.show_message("错误", "负载阻抗或校准常数或gain或offset有误")
             return
 
         sample_rate = int(self.lineEdit_sample_rate.text())
 
-        selected_radio_vpp = "fixture_plus"
-        selected_radio_dbm = "fixture"
-
         data_dict = FFT.get_fundamental_volt(
             csv_path, sample_rate, window_type,
             start_frep, end_frep, step_frep,
-            gain, load_impedance, cal_constant,
-            selected_radio_vpp, selected_radio_dbm)
+            gain, load_impedance, cal_constant, offset,
+            "fixture_plus")
         if data_dict is None:
             return
 

@@ -287,6 +287,20 @@
                     </property>
                    </widget>
                   </item>
+                  <item>
+                   <widget class="QLabel" name="label_offset">
+                    <property name="text">
+                     <string>offset</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="lineEdit_offset">
+                    <property name="text">
+                     <string>0</string>
+                    </property>
+                   </widget>
+                  </item>
                  </layout>
                 </item>
                 <item>
@@ -399,7 +413,7 @@
                   <item>
                    <widget class="QLineEdit" name="lineEdit_cal_constant">
                     <property name="text">
-                     <string>10.79</string>
+                     <string>13.01</string>
                     </property>
                    </widget>
                   </item>
@@ -445,6 +459,13 @@
              <widget class="QPushButton" name="pushButton_csv">
               <property name="text">
                <string>计算DBM</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="pushButton_dbm_help">
+              <property name="text">
+               <string>❓ dbm介绍</string>
               </property>
              </widget>
             </item>

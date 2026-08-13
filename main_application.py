@@ -49,6 +49,13 @@ _plugins_dir_for_path = get_plugins_dir()
 if _plugins_dir_for_path not in sys.path:
     sys.path.insert(0, _plugins_dir_for_path)
 
+# 额外把 plugins/libs 加入 sys.path（插到最前，优先于标准库）。
+# libs/ 存放打包后可能缺失的标准库补丁（如 pty.py，供 pexpect/expect 依赖），
+# 打包后由 post_build_copy_plugins 随 plugins 目录整体复制到 MacOS/plugins/libs。
+_libs_dir_for_path = os.path.join(_plugins_dir_for_path, 'libs')
+if os.path.isdir(_libs_dir_for_path) and _libs_dir_for_path not in sys.path:
+    sys.path.insert(0, _libs_dir_for_path)
+
 
 class MainApplication(QMainWindow):
     """

@@ -19,6 +19,9 @@ sys.path.insert(0, PLUGIN_DIR)
 # 导入本地的rpc_client
 from rpc_client import RpcClient
 
+# 通用 JSON 配置基类（复用其他插件的配置持久化框架）
+from utils.json_config import BaseJsonConfig
+
 # 添加mix目录到路径
 mix_dir = os.path.join(PLUGIN_DIR, 'mix')
 if mix_dir not in sys.path:
@@ -39,6 +42,30 @@ def get_resource_path(relative_path):
         此函数假设插件目录在外部，不从MEIPASS加载
     """
     return os.path.join(PLUGIN_DIR, relative_path)
+
+class CommandsInfoConfig(BaseJsonConfig):
+    """命令信息配置管理器 - 复用通用 JSON 配置基类。
+
+    管理设备端枚举的命令信息 {service: {method: info}}，存放于宿主
+    config_manager 配置目录下的 commands_info.json。该数据由设备动态
+    返回、结构不固定，故不配置模板文件与兜底默认值，文件缺失时
+    自动初始化为空字典。
+
+    Attributes:
+        config: 命令信息字典，get() 可直接按点号键访问。
+        config_file: commands_info.json 的绝对路径。
+    """
+
+    def __init__(self) -> None:
+        """初始化命令信息配置管理器。
+
+        Warning:
+            配置目录取自宿主 config_manager（~/.MIX-Tool），
+            实例化时同步读取文件，属磁盘 I/O 操作。
+        """
+        from utils.config import config_manager
+        config_file = os.path.join(config_manager.get_config_dir(), 'commands_info.json')
+        super().__init__(config_file=config_file)
 
 class MIXDebugPlugin(QMainWindow):
     """MIX调试插件主窗口类。
@@ -446,6 +473,8 @@ class MIXDebugPlugin(QMainWindow):
         """保存命令信息到JSON文件。
 
         将从设备获取的所有命令信息持久化存储，供命令自动补全使用。
+        复用 CommandsInfoConfig（BaseJsonConfig 框架）整体覆盖写入，
+        目录不存在时自动创建。
 
         Args:
             commands_info: 命令信息字典，结构为 {service: {method: info}}
@@ -453,34 +482,23 @@ class MIXDebugPlugin(QMainWindow):
         Returns:
             None: 无返回值，成功或失败通过日志通知
         """
-        from utils.config import config_manager
-        config_dir = config_manager.get_config_dir()
-        commands_file = os.path.join(config_dir, 'commands_info.json')
-        
-        try:
-            with open(commands_file, 'w', encoding='utf-8') as f:
-                json.dump(commands_info, f, ensure_ascii=False, indent=2)
-            self.log_message(f"命令信息已保存到 {commands_file}")
-        except Exception as e:
-            self.log_message(f"保存命令信息失败: {str(e)}")
-    
+        cfg = CommandsInfoConfig()
+        cfg.config = commands_info
+        if cfg.save():
+            self.log_message(f"命令信息已保存到 {cfg.config_file}")
+        else:
+            self.log_message("保存命令信息失败")
+
     def load_commands_info(self):
         """从JSON文件加载命令信息。
+
+        复用 CommandsInfoConfig（BaseJsonConfig 框架），实例化时即完成
+        文件读取与默认值合并，无需手动解析。
 
         Returns:
             dict: 命令信息字典，结构为 {service: {method: info}}，文件不存在时返回空字典
         """
-        from utils.config import config_manager
-        config_dir = config_manager.get_config_dir()
-        commands_file = os.path.join(config_dir, 'commands_info.json')
-        
-        try:
-            if os.path.exists(commands_file):
-                with open(commands_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-        except Exception as e:
-            self.log_message(f"加载命令信息失败: {str(e)}")
-        return {}
+        return CommandsInfoConfig().config
     
     def update_command_hints(self):
         """更新命令自动补全提示列表。

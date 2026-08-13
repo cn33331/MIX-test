@@ -1,0 +1,30 @@
+{
+  "ssh": {
+    "username": "gdlocal",
+    "password": "gdlocal",
+    "port": 22
+  },
+  "scan": {
+    "range": "10.8.30.14-23"
+  },
+  "paths": {
+    "deploy_script_path": "",
+    "browser_local_path": "",
+    "browser_remote_path": "/",
+    "browser_target_ip": ""
+  },
+  "sync": {
+    "push_delete": false,
+    "pull_delete": false
+  },
+  "browser": {
+    "delete_sync": false
+  },
+  "devices": [],
+  "command_history": [],
+  "ui": {
+    "log_expanded": true,
+    "last_mode": 1,
+    "device_filter": ""
+  }
+}

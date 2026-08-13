@@ -1,0 +1,117 @@
+{
+  "ssh": {
+    "username": "gdlocal",
+    "password": "gdlocal",
+    "port": 22
+  },
+  "scan": {
+    "range": "10.8.30.1-100"
+  },
+  "paths": {
+    "deploy_script_path": "/Users/gdlocal/Desktop/myCode/myAPP/MIX-test/plugins/rsync_plugin/scripts/B632环境部署脚步.json",
+    "browser_local_path": "/Users/gdlocal/Desktop",
+    "browser_remote_path": "/",
+    "browser_target_ip": ""
+  },
+  "sync": {
+    "push_delete": false,
+    "pull_delete": false
+  },
+  "devices": [
+    {
+      "ip": "10.8.30.14",
+      "uname": "Warning: Permanently added '10.8.30.14' (ED25519) to the list of known hosts.\n\n\nDarwin USSH-JQ02-3F-RD02-1-MLB-FCT 19.6.0 Darwin Kernel Version 19.6.0: Thu Jun 18 20:49:00 PDT 2020; root:xnu-6153.141.1~1/RELEASE_X86_64 x86_64"
+    },
+    {
+      "ip": "10.8.30.16",
+      "uname": "Warning: Permanently added '10.8.30.16' (ED25519) to the list of known hosts.\n\n\nDarwin USSH-JQ02-3FAAP-01-1-FCT2 19.6.0 Darwin Kernel Version 19.6.0: Thu Jun 18 20:49:00 PDT 2020; root:xnu-6153.141.1~1/RELEASE_X86_64 x86_64"
+    },
+    {
+      "ip": "10.8.30.17",
+      "uname": "Warning: Permanently added '10.8.30.17' (ED25519) to the list of known hosts.\n\n\nDarwin USSH-JQ02-3F-RD01-3-MLB-FCT 19.6.0 Darwin Kernel Version 19.6.0: Thu Jun 18 20:49:00 PDT 2020; root:xnu-6153.141.1~1/RELEASE_X86_64 x86_64"
+    },
+    {
+      "ip": "10.8.30.18",
+      "uname": "Warning: Permanently added '10.8.30.18' (ED25519) to the list of known hosts.\n\n\nDarwin USSH-JQ02-3F-RD01-6-MLB-FCT 19.6.0 Darwin Kernel Version 19.6.0: Thu Jun 18 20:49:00 PDT 2020; root:xnu-6153.141.1~1/RELEASE_X86_64 x86_64"
+    },
+    {
+      "ip": "10.8.30.19",
+      "uname": "Warning: Permanently added '10.8.30.19' (ED25519) to the list of known hosts.\n\n\nDarwin USSH-JQ02-3F-RD02-2-FCT2 19.6.0 Darwin Kernel Version 19.6.0: Thu Jun 18 20:49:00 PDT 2020; root:xnu-6153.141.1~1/RELEASE_X86_64 x86_64"
+    },
+    {
+      "ip": "10.8.30.20",
+      "uname": "Warning: Permanently added '10.8.30.20' (ED25519) to the list of known hosts.\n\n\nDarwin USSH-JQ02-3F-RD01-2-MLB-FCT 19.6.0 Darwin Kernel Version 19.6.0: Thu Jun 18 20:49:00 PDT 2020; root:xnu-6153.141.1~1/RELEASE_X86_64 x86_64"
+    },
+    {
+      "ip": "10.8.30.21",
+      "uname": "Warning: Permanently added '10.8.30.21' (ED25519) to the list of known hosts.\n\n\nDarwin USSH-JQ02-3F-RD01-5-MLB-FCT 19.6.0 Darwin Kernel Version 19.6.0: Thu Jun 18 20:49:00 PDT 2020; root:xnu-6153.141.1~1/RELEASE_X86_64 x86_64"
+    },
+    {
+      "ip": "10.8.30.25",
+      "uname": "Warning: Permanently added '10.8.30.25' (ED25519) to the list of known hosts.\n\n\nDarwin USSH-JQ02-3FAAP-01-1-BT-COND 24.4.0 Darwin Kernel Version 24.4.0: Wed Nov  5 13:09:28 PST 2025; root:xnu-11417.101.15~213/RELEASE_ARM64_T8103 arm64"
+    },
+    {
+      "ip": "10.8.30.27",
+      "uname": "Warning: Permanently added '10.8.30.27' (ED25519) to the list of known hosts.\n\n\nDarwin USSH-JQ02-3FAAP-01-2-BT-COND 24.4.0 Darwin Kernel Version 24.4.0: Wed Nov  5 13:09:28 PST 2025; root:xnu-11417.101.15~213/RELEASE_ARM64_T8103 arm64"
+    },
+    {
+      "ip": "10.8.30.31",
+      "uname": "Warning: Permanently added '10.8.30.31' (ED25519) to the list of known hosts.\n\n\nDarwin USSH-JQ02-3F-RD01-9-MLB-FCT 21.4.0 Darwin Kernel Version 21.4.0: Mon Feb 21 20:34:37 PST 2022; root:xnu-8020.101.4~2/RELEASE_X86_64 x86_64"
+    },
+    {
+      "ip": "10.8.30.37",
+      "uname": "Warning: Permanently added '10.8.30.37' (ED25519) to the list of known hosts.\n\n\nDarwin USSH-JQ02-3F-REL01-1-STATION5 24.4.0 Darwin Kernel Version 24.4.0: Wed Nov  5 13:09:28 PST 2025; root:xnu-11417.101.15~213/RELEASE_ARM64_T8103 arm64"
+    },
+    {
+      "ip": "10.8.30.48",
+      "uname": "Warning: Permanently added '10.8.30.48' (ED25519) to the list of known hosts.\n\n\nDarwin USSH-JQ02-3F-REL01-2-STATION5 24.4.0 Darwin Kernel Version 24.4.0: Wed Nov  5 13:09:28 PST 2025; root:xnu-11417.101.15~213/RELEASE_ARM64_T8103 arm64"
+    },
+    {
+      "ip": "10.8.30.58",
+      "uname": "Warning: Permanently added '10.8.30.58' (ED25519) to the list of known hosts.\n\n\nDarwin USSH-JQ02-3F-REL01-1-REL 19.6.0 Darwin Kernel Version 19.6.0: Thu Jun 18 20:49:00 PDT 2020; root:xnu-6153.141.1~1/RELEASE_X86_64 x86_64"
+    },
+    {
+      "ip": "10.8.30.75",
+      "uname": "Warning: Permanently added '10.8.30.75' (ED25519) to the list of known hosts.\n\n\nDarwin USSH-JQ02-3F-RD02-6-MLB-FCT 19.6.0 Darwin Kernel Version 19.6.0: Thu Jun 18 20:49:00 PDT 2020; root:xnu-6153.141.1~1/RELEASE_X86_64 x86_64"
+    },
+    {
+      "ip": "10.8.30.78",
+      "uname": "Warning: Permanently added '10.8.30.78' (ED25519) to the list of known hosts.\n\n\nDarwin USSH-JQ02-3F-RD01-4-MLB-FCT 19.6.0 Darwin Kernel Version 19.6.0: Thu Jun 18 20:49:00 PDT 2020; root:xnu-6153.141.1~1/RELEASE_X86_64 x86_64"
+    },
+    {
+      "ip": "10.8.30.79",
+      "uname": "Warning: Permanently added '10.8.30.79' (ED25519) to the list of known hosts.\n\n\nDarwin USSH-JQ02-3F-REL01-1-STATION4 19.6.0 Darwin Kernel Version 19.6.0: Thu Jun 18 20:49:00 PDT 2020; root:xnu-6153.141.1~1/RELEASE_X86_64 x86_64"
+    },
+    {
+      "ip": "10.8.30.80",
+      "uname": "Warning: Permanently added '10.8.30.80' (ED25519) to the list of known hosts.\n\n\nDarwin USSH-JQ02-3F-REL01-1-STATION3 19.6.0 Darwin Kernel Version 19.6.0: Thu Jun 18 20:49:00 PDT 2020; root:xnu-6153.141.1~1/RELEASE_X86_64 x86_64"
+    },
+    {
+      "ip": "10.8.30.81",
+      "uname": "Warning: Permanently added '10.8.30.81' (ED25519) to the list of known hosts.\n\n\nDarwin USSH-JQ02-3F-REL01-2-STATION3 19.6.0 Darwin Kernel Version 19.6.0: Thu Jun 18 20:49:00 PDT 2020; root:xnu-6153.141.1~1/RELEASE_X86_64 x86_64"
+    },
+    {
+      "ip": "10.8.30.82",
+      "uname": "Warning: Permanently added '10.8.30.82' (ED25519) to the list of known hosts.\n\n\nDarwin USSH-JQ02-3F-REL01-2-STATION4 19.6.0 Darwin Kernel Version 19.6.0: Thu Jun 18 20:49:00 PDT 2020; root:xnu-6153.141.1~1/RELEASE_X86_64 x86_64"
+    },
+    {
+      "ip": "10.8.30.83",
+      "uname": "Warning: Permanently added '10.8.30.83' (ED25519) to the list of known hosts.\n\n\nDarwin USSH-JQ02-3F-RD01-5-BT-COND 24.4.0 Darwin Kernel Version 24.4.0: Wed Nov  5 13:09:32 PST 2025; root:xnu-11417.101.15~213/RELEASE_ARM64_T6020 arm64"
+    }
+  ],
+  "command_history": [
+    "uname -a",
+    "ls"
+  ],
+  "ui": {
+    "log_expanded": false,
+    "last_mode": 1,
+    "device_filter": "FCT"
+  },
+  "browser": {
+    "delete_sync": false
+  },
+  "test": {
+    "key": 123
+  }
+}

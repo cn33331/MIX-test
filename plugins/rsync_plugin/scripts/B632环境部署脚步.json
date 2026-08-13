@@ -1,0 +1,26 @@
+{
+  "name": "B632环境部署脚步",
+  "ssh": {
+    "username": "gdlocal",
+    "password": "gdlocal",
+    "port": 22
+  },
+  "step1_targets": {
+    "mode": "scan",
+    "ip_range": "10.8.30.1-100",
+    "manual_ips": "10.8.30.16",
+    "hostname_filter": "FCT"
+  },
+  "step2_push": {
+    "local_path": "/Users/gdadmin/Documents/ZJX/ZJX_backup",
+    "remote_path": "/vault/ZJX_backup",
+    "delete": true
+  },
+  "step3_commands": [
+    "killall shTool",
+    "open /vault/ZJX_backup/shTool.app/Contents/Resources/Tool/auto",
+    "cp -r /vault/ZJX_backup/MIX-Tool/ /Users/gdlocal/.MIX-Tool/",
+    "ln -s /vault/ZJX_backup/shTool/AtlasDataProcessorPlus.app ~/Desktop",
+    "cp -r /vault/ZJX_backup/shTool/AtlasDataProcessorPlus Library/Application\\ Support"
+  ]
+}
