@@ -2,8 +2,8 @@ import sys
 import os
 import csv
 import math
+import bisect
 import importlib
-import numpy as np
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QButtonGroup, QLineEdit, QLabel, QDialog,
@@ -129,18 +129,18 @@ def decimate_data(x, y, max_points=10000):
     指定的最大点数，同时尽可能保留数据的视觉特征。
 
     Args:
-        x (numpy.ndarray or list): X轴数据数组。
-        y (numpy.ndarray or list): Y轴数据数组。
+        x (list or tuple): X轴数据。
+        y (list or tuple): Y轴数据。
         max_points (int, optional): 降采样后的最大点数。默认值为 10000。
 
     Returns:
         tuple: 包含以下元素的元组：
-            - result_x (numpy.ndarray): 降采样后的X轴数据。
-            - result_y (numpy.ndarray): 降采样后的Y轴数据。
+            - result_x (list): 降采样后的X轴数据。
+            - result_y (list): 降采样后的Y轴数据。
 
     Example:
-        >>> x = np.linspace(0, 1, 100000)
-        >>> y = np.sin(x * 2 * np.pi)
+        >>> x = list(range(100000))
+        >>> y = [v * 2 for v in x]
         >>> x_down, y_down = decimate_data(x, y, max_points=1000)
         >>> print(len(x_down))
         1000
@@ -167,8 +167,8 @@ def decimate_data(x, y, max_points=10000):
         prev_x = result_x[-1]
         prev_y = result_y[-1]
 
-        next_avg_x = np.mean(x[min(bucket_end, n-1):min(next_bucket_end, n-1)])
-        next_avg_y = np.mean(y[min(bucket_end, n-1):min(next_bucket_end, n-1)])
+        next_avg_x = sum(x[min(bucket_end, n-1):min(next_bucket_end, n-1)]) / max(1, min(next_bucket_end, n-1) - min(bucket_end, n-1))
+        next_avg_y = sum(y[min(bucket_end, n-1):min(next_bucket_end, n-1)]) / max(1, min(next_bucket_end, n-1) - min(bucket_end, n-1))
 
         for j in range(bucket_start, min(bucket_end, n-1)):
             area = abs((x[j] - prev_x) * (next_avg_y - prev_y) -
@@ -183,7 +183,7 @@ def decimate_data(x, y, max_points=10000):
     result_x.append(x[-1])
     result_y.append(y[-1])
 
-    return np.array(result_x), np.array(result_y)
+    return result_x, result_y
 
 
 class ZoomMode:
@@ -213,8 +213,8 @@ class PlotWidget(QWidget):
     支持鼠标拖动平移、滚轮缩放、键盘快捷操作等功能。
 
     Attributes:
-        x_data (numpy.ndarray): X轴数据数组。
-        y_data (numpy.ndarray): Y轴数据数组。
+        x_data (list): X轴数据。
+        y_data (list): Y轴数据。
         x_label (str): X轴标签文字。
         y_label (str): Y轴标签文字。
         title (str): 图表标题。
@@ -285,7 +285,7 @@ class PlotWidget(QWidget):
     def set_data(self, x, y):
         """设置绘图数据并初始化视图范围。
 
-        将输入数据转换为 numpy 数组，并自动计算数据范围作为初始视图。
+        将输入数据转换为 list，并自动计算数据范围作为初始视图。
 
         Args:
             x (array_like): X轴数据。
@@ -295,14 +295,14 @@ class PlotWidget(QWidget):
             >>> plot = PlotWidget()
             >>> plot.set_data([0, 1, 2], [0, 1, 0])
         """
-        self.x_data = np.array(x)
-        self.y_data = np.array(y)
+        self.x_data = list(x)
+        self.y_data = list(y)
         if len(self.x_data) > 0:
-            self.x_min_view = np.min(self.x_data)
-            self.x_max_view = np.max(self.x_data)
+            self.x_min_view = min(self.x_data)
+            self.x_max_view = max(self.x_data)
         if len(self.y_data) > 0:
-            self.y_min_view = np.min(self.y_data)
-            self.y_max_view = np.max(self.y_data)
+            self.y_min_view = min(self.y_data)
+            self.y_max_view = max(self.y_data)
         self.update()
 
     def set_labels(self, x_label, y_label):
@@ -371,11 +371,11 @@ class PlotWidget(QWidget):
             >>> plot.reset_view()
         """
         if len(self.x_data) > 0:
-            self.x_min_view = np.min(self.x_data)
-            self.x_max_view = np.max(self.x_data)
+            self.x_min_view = min(self.x_data)
+            self.x_max_view = max(self.x_data)
         if len(self.y_data) > 0:
-            self.y_min_view = np.min(self.y_data)
-            self.y_max_view = np.max(self.y_data)
+            self.y_min_view = min(self.y_data)
+            self.y_max_view = max(self.y_data)
         self.update()
 
     def mousePressEvent(self, event):
@@ -492,8 +492,8 @@ class PlotWidget(QWidget):
             self.y_min_view = y_center - y_ratio * new_y_range
             self.y_max_view = self.y_min_view + new_y_range
 
-        min_x_range = (np.max(self.x_data) - np.min(self.x_data)) * 0.01
-        min_y_range = (np.max(self.y_data) - np.min(self.y_data)) * 0.01
+        min_x_range = (max(self.x_data) - min(self.x_data)) * 0.01
+        min_y_range = (max(self.y_data) - min(self.y_data)) * 0.01
 
         if self.x_max_view - self.x_min_view < min_x_range:
             self.x_max_view = self.x_min_view + min_x_range
@@ -747,9 +747,11 @@ class PlotWidget(QWidget):
 
         painter.setPen(QPen(QColor(30, 144, 255), 1.5))
 
-        mask = (self.x_data >= x_min - x_range * 0.1) & (self.x_data <= x_max + x_range * 0.1)
-        visible_x = self.x_data[mask]
-        visible_y = self.y_data[mask]
+        # 筛选视图范围外扩10%内的数据点（x 单调递增，用 bisect 快速定位）
+        lo = bisect.bisect_left(self.x_data, x_min - x_range * 0.1)
+        hi = bisect.bisect_right(self.x_data, x_max + x_range * 0.1)
+        visible_x = self.x_data[lo:hi]
+        visible_y = self.y_data[lo:hi]
 
         downsampled_x, downsampled_y = decimate_data(visible_x, visible_y, max_points=5000)
 
@@ -933,8 +935,8 @@ class WaveformWindow(QDialog):
             >>> window = WaveformWindow()
             >>> window.plot([0, 1, 2, 3, 4], 1, 5)
         """
-        x_data = np.array(range(start_idx, end_idx + 1))
-        y_data = np.array(voltage_data)
+        x_data = list(range(start_idx, end_idx + 1))
+        y_data = list(voltage_data)
 
         x_data, y_data = decimate_data(x_data, y_data, max_points=5000)
 
@@ -972,9 +974,6 @@ class WaveformWindow(QDialog):
             QMessageBox.warning(self, "数据错误", "无有效频谱数据可绘制！")
             return
 
-        frequencies = np.array(frequencies)
-        dbm_values = np.array(dbm_values)
-
         self.plot_widget.set_data(frequencies, dbm_values)
         self.plot_widget.set_labels("频率 (Hz)", "功率幅值 (dBm)")
         self.plot_widget.set_title("频谱分析图")
@@ -985,7 +984,7 @@ class WaveformWindow(QDialog):
             label = f"目标频率: {flag_frep} Hz\n幅值: {target_volt:.3f} V\n{target_dbm:.1f} dBm"
             self.plot_widget.set_vertical_line(flag_frep, QColor(255, 165, 0), label)
         else:
-            peak_idx = np.argmax(dbm_values)
+            peak_idx = dbm_values.index(max(dbm_values))
             flag_freq = frequencies[peak_idx]
             target_dbm = dbm_values[peak_idx]
             target_volt = voltage_values[peak_idx]
