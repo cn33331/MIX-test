@@ -47,8 +47,6 @@ a = Analysis(
         'logging',
         'logging.handlers',
         'numpy',
-        'scipy',
-        'scipy.fft',
     ],
     hookspath=[],
     hooksconfig={},

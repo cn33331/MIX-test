@@ -2,7 +2,6 @@ import struct
 import sys
 import os
 import csv
-import numpy as np
 
 
 def code_to_mvolt2(code, gain=58.3, mvref=1000):

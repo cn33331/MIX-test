@@ -1,6 +1,7 @@
 import sys
 import os
 import csv
+import math
 import importlib
 import numpy as np
 from PyQt6 import QtCore, QtGui, QtWidgets
@@ -11,8 +12,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import QPainter, QPen, QColor, QFont, QPolygonF, QPixmap
 
-import FFT
-import code_to_mvolt
+import fft_processor
 from PyQt6.uic import loadUi
 
 PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -962,6 +962,12 @@ class WaveformWindow(QDialog):
         dbm_values = [fundamental_volt_dict[f]["dbm"] for f in frequencies]
         voltage_values = [fundamental_volt_dict[f]["volt"] for f in frequencies]
 
+        # 过滤非有限值（nan/inf），避免污染坐标 min/max 导致刻度显示 nan
+        valid = [i for i, d in enumerate(dbm_values) if math.isfinite(d)]
+        frequencies = [frequencies[i] for i in valid]
+        dbm_values = [dbm_values[i] for i in valid]
+        voltage_values = [voltage_values[i] for i in valid]
+
         if not frequencies or not dbm_values:
             QMessageBox.warning(self, "数据错误", "无有效频谱数据可绘制！")
             return
@@ -1066,7 +1072,7 @@ class WaveformPlugin(QWidget):
         loadUi(ui_path, self)
         self.setWindowTitle(f'Waveform {self.version} by:zjx')
 
-        self.comboBox_frep_1.addItems(["120000","300000","550000","500000","112000", "238000", "322000", "406000", "464000", "498000"])
+        self.comboBox_frep_1.addItems(["120000","210000","400000","300000","550000","500000","112000", "238000", "322000", "406000", "464000", "498000"])
         enable_drag_drop(self.textEdit_binPath)
         enable_drag_drop(self.textEdit_csvPath)
 
@@ -1097,32 +1103,47 @@ class WaveformPlugin(QWidget):
         return self
 
     def show_dbm_help(self):
-        """弹出dbm计算逻辑介绍图片。
-
-        点击 ❓ dbm介绍 按钮时调用，以对话框形式展示 dbm.png
-        图片，说明dbm的计算逻辑。
-
-        Example:
-            >>> self.show_dbm_help()
-        """
         img_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dbm.png")
         if not os.path.exists(img_path):
             QMessageBox.warning(self, "提示", f"未找到dbm介绍图片：{img_path}")
             return
-        pixmap = QPixmap(img_path)
-        if pixmap.isNull():
+
+        original_pixmap = QPixmap(img_path)
+        if original_pixmap.isNull():
             QMessageBox.warning(self, "提示", f"无法加载dbm介绍图片：{img_path}")
             return
+
+        # 定义最大显示尺寸
+        max_width = 900
+        max_height = 700
+
+        # 如果图片超过最大尺寸，则进行缩放
+        if original_pixmap.width() > max_width or original_pixmap.height() > max_height:
+            # scaled 保持宽高比 (Qt.KeepAspectRatio)，使用平滑变换 (Qt.SmoothTransformation)
+            scaled_pixmap = original_pixmap.scaled(
+                max_width, 
+                max_height, 
+                Qt.AspectRatioMode.KeepAspectRatio, 
+                Qt.TransformationMode.SmoothTransformation
+            )
+        else:
+            scaled_pixmap = original_pixmap
+
         dialog = QDialog(self)
         dialog.setWindowTitle("dbm计算逻辑介绍")
+        
         label = QLabel()
-        label.setPixmap(pixmap)
+        label.setPixmap(scaled_pixmap) # 显示缩放后的图片
+        
         scroll_area = QtWidgets.QScrollArea(dialog)
         scroll_area.setWidgetResizable(True)
         scroll_area.setWidget(label)
+        
         layout = QVBoxLayout(dialog)
         layout.addWidget(scroll_area)
-        dialog.resize(min(pixmap.width(), 900), min(pixmap.height(), 700))
+        
+        # 对话框大小略大于图片，留出边距
+        dialog.resize(scaled_pixmap.width() + 20, scaled_pixmap.height() + 20)
         dialog.exec()
 
     def get_name(self):
@@ -1167,39 +1188,14 @@ class WaveformPlugin(QWidget):
         except ValueError:
             self.show_message("错误", "衰减倍数获取失败")
             return
-        csv_path = code_to_mvolt.decode_bin_to_csv(bin_path, DBM_gain)
+        # 能力1：bin 直接解码为单列电压幅值 CSV
+        csv_path = fft_processor.generate_amplitude_csv(
+            bin_path, os.path.splitext(bin_path)[0] + ".csv",
+            gain=DBM_gain)
         self.textEdit_csvPath.setPlainText(csv_path)
         self.textBrowser.append(f'<font color="green">[成功]</font> 生成 CSV 文件：{csv_path}')
 
-    def calculate_frequency(self, csv_path):
-        """计算信号频率。
 
-        从 CSV 文件读取电压数据，使用上升沿检测算法
-        计算信号频率，并输出结果到日志窗口。
-
-        Args:
-            csv_path (str): CSV 文件路径。
-
-        Example:
-            >>> plugin = WaveformPlugin()
-            >>> plugin.calculate_frequency("data.csv")
-        """
-        self.textBrowser.append("开始计算频率")
-        referVolt = int(self.lineEdit_referVolt.text())
-        intervalCount = int(self.lineEdit_intervalCount.text())
-        _sampleRate = int(self.lineEdit_sample_rate.text())
-        raw_data = []
-        with open(csv_path, 'r', encoding='utf-8') as f:
-            reader = csv.reader(f)
-            for row in reader:
-                raw_data.append(row)
-        freq, end_collect_index, start_collect_index, period = code_to_mvolt.calculate_frequency(
-            raw_data, referVolt, intervalCount, _sampleRate)
-        self.textBrowser.append(f"frequency: {freq}")
-        self.textBrowser.append(f"end_collect_index: {end_collect_index}")
-        self.textBrowser.append(f"start_collect_index: {start_collect_index}")
-        self.textBrowser.append(f"period: {period}")
-        self.textBrowser.append(f"计算得到的频率：{freq}")
 
     def calculate_dbm(self, csv_path):
         """计算指定频率的 dBm 值。
@@ -1237,15 +1233,19 @@ class WaveformPlugin(QWidget):
             self.show_message("错误", "负载阻抗或校准常数或gain或offset有误")
             return
 
-        raw_voltage = FFT.read_voltage_from_csv(csv_path)
-        fft_result = FFT.fft_analysis(
-            raw_voltage, sample_rate, window_type,
-            float(self.comboBox_frep_1.currentText()))
-        fundamental_voltage = fft_result["fundamental_voltage"]
-        fundamental_freq = fft_result["fundamental_freq"]
-        fundamental_rms = fft_result["fundamental_rms"]
-        dbm_value_1 = FFT.voltage_to_dbm_Fixture(
-            fundamental_voltage, gain, load_impedance, cal_constant, offset)
+        target_freq = float(self.comboBox_frep_1.currentText())
+        # 能力3：单频率查询（基频/该频率幅值/该频率dbm/THD/THD+N）
+        try:
+            info = fft_processor.get_frequency_info(
+                csv_path, target_freq, sample_rate, window_type, gain,
+                dbm_gain=gain, cal_constant=cal_constant, offset=offset)
+        except RuntimeError as e:
+            self.show_message("错误", f"FFT 分析失败：{e}")
+            return
+        fundamental_voltage = info["该频率电压幅值"]
+        fundamental_freq = info["基频频率"]
+        fundamental_rms = info["基频RMS"]
+        dbm_value_1 = info["该频率dbm"]
         print(f"===============================================")
         print(f"对应 dBm 值：{dbm_value_1:.2f} dBm")
         print(f"对应 幅值：{fundamental_voltage:.2f} V")
@@ -1254,7 +1254,7 @@ class WaveformPlugin(QWidget):
         self.textBrowser.append(f"FFT分析结果：")
         self.textBrowser.append(f"基频频率: {fundamental_freq:.9f} Hz")
         self.textBrowser.append(f"基频RMS: {fundamental_rms:.9f} V")
-        self.textBrowser.append(f"计算频率: {float(self.comboBox_frep_1.currentText()):.9f} Hz")
+        self.textBrowser.append(f"计算频率: {target_freq:.9f} Hz")
         self.textBrowser.append(f"该频率电压幅值: {fundamental_voltage:.9f} V")
         self.textBrowser.append(f"gain: {gain:.9f}")
         self.textBrowser.append(f"offset: {offset:.9f}")
@@ -1285,7 +1285,6 @@ class WaveformPlugin(QWidget):
             return False
 
         self.textBrowser.append("\n=== 开始解析 csv 文件 ===\n")
-        # self.calculate_frequency(csv_path)
         self.calculate_dbm(csv_path)
 
     def plot_voltage_range_waveform(self):
@@ -1325,8 +1324,17 @@ class WaveformPlugin(QWidget):
             return
 
         try:
-            voltage_data = FFT.read_voltage_from_csv(csv_path)
-            if voltage_data is None:
+            # 本地读取单列电压幅值 CSV（替代原 FFT.read_voltage_from_csv）
+            voltage_data = []
+            with open(csv_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            voltage_data.append(float(line))
+                        except ValueError:
+                            continue
+            if not voltage_data:
                 return
 
             total_data = len(voltage_data)
@@ -1421,12 +1429,42 @@ class WaveformPlugin(QWidget):
 
         sample_rate = int(self.lineEdit_sample_rate.text())
 
-        data_dict = FFT.get_fundamental_volt(
-            csv_path, sample_rate, window_type,
-            start_frep, end_frep, step_frep,
-            gain, load_impedance, cal_constant, offset,
-            "fixture_plus")
-        if data_dict is None:
+        # 能力2：按 start/step/end 生成 频率/幅值/dbm 三列 CSV
+        spectrum_csv = os.path.join(PLUGIN_DIR, "spectrum_data.csv")
+        try:
+            fft_processor.generate_fft_csv(
+                csv_path, spectrum_csv,
+                start_frep, step_frep, end_frep,
+                sample_rate, window_type, gain,
+                dbm_gain=gain, cal_constant=cal_constant, offset=offset)
+        except RuntimeError as e:
+            self.show_message("错误", f"FFT 频谱生成失败：{e}")
+            return
+
+        # 读取三列 CSV，构建 {频率: {"volt": .., "dbm": ..}} 字典
+        data_dict = {}
+        with open(spectrum_csv, 'r', encoding='utf-8') as f:
+            next(f)  # 跳过表头 frequency_hz,magnitude_v,dbm
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split(",")
+                if len(parts) != 3:
+                    continue
+                freq = int(float(parts[0]))
+                volt = float(parts[1])
+                dbm = float(parts[2])
+                # 跳过无效数据点：旁瓣谷底插值可能产生负幅值，
+                # 使 dbm 为 nan/inf，否则会污染坐标 min/max 导致刻度显示 nan
+                if not (math.isfinite(volt) and math.isfinite(dbm)):
+                    continue
+                data_dict[freq] = {
+                    "volt": volt,
+                    "dbm": dbm,
+                }
+        if not data_dict:
+            self.show_message("错误", "无有效频谱数据可绘制！")
             return
 
         self.textBrowser.append('<font color="green">[成功]</font> 频谱数据已生成')
