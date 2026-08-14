@@ -39,6 +39,14 @@ class InteractiveShell:
     # 命令完成后打印的标记（用于检测输出结束 + 提取返回码）
     _MARKER = '__SHELL_MARKER_RC__'
 
+    # 密码认证失败原因 → 用户可读提示（用于异常信息，便于日志定位根因）
+    _AUTH_FAIL_HINTS = {
+        'bad_password': '密码错误或账号无权限',
+        'ssh_exited': '连接被拒绝或网络不可达',
+        'timeout': '等待密码提示超时（连接卡住）',
+        'io_error': 'PTY 读取异常',
+    }
+
     def __init__(self, username, password, ip, port=22, connect_timeout=15):
         """初始化交互式 SSH 会话。
 
@@ -62,12 +70,24 @@ class InteractiveShell:
         # 创建 PTY
         self.master_fd, self.slave_fd = pty.openpty()
 
+        # 关闭 PTY 回显：否则 ssh 输入（如 export PS1="marker"）会被回显到 master，
+        # 导致 _read_until 匹配到「回显文本里的标记」而提前返回（真实应答残留），
+        # send_command 的 marker 解析因此取不到返回码（rc=-1）
+        try:
+            import termios
+            attrs = termios.tcgetattr(self.slave_fd)
+            attrs[3] &= ~termios.ECHO
+            termios.tcsetattr(self.slave_fd, termios.TCSANOW, attrs)
+        except Exception:
+            pass  # 平台不支持 termios 时忽略，仅影响回显清理精度
+
         # 启动 ssh 进程（绑定到 PTY 的 slave 端）
+        # ConnectTimeout 与 expect 路径（execute_command 用 5s）保持一致，避免等待过长
         ssh_args = [
             'ssh',
             '-o', 'StrictHostKeyChecking=no',
             '-o', 'UserKnownHostsFile=/dev/null',
-            '-o', f'ConnectTimeout={min(connect_timeout, 10)}',
+            '-o', f'ConnectTimeout={min(connect_timeout, 5)}',
             '-p', str(port),
             f'{username}@{ip}',
         ]
@@ -87,10 +107,12 @@ class InteractiveShell:
         # 关闭 slave 端（父进程不需要）
         os.close(self.slave_fd)
 
-        # 等待密码提示并输入密码
-        if not self._handle_password(connect_timeout):
+        # 等待密码提示并输入密码（返回精确失败原因，便于日志定位）
+        reason = self._handle_password(connect_timeout)
+        if reason != 'ok':
             self.close()
-            raise RuntimeError(f'SSH 连接失败: {ip}（密码错误或连接超时）')
+            hint = self._AUTH_FAIL_HINTS.get(reason, f'认证异常({reason})')
+            raise RuntimeError(f'SSH 连接失败: {ip}（{hint}）')
 
         # 设置一个独特的 PS1，便于检测命令结束
         self._prompt_marker = f'__SHELL_PROMPT_{id(self)}__'
@@ -152,55 +174,81 @@ class InteractiveShell:
 
         return buf.decode('utf-8', errors='replace')
 
-    def _handle_password(self, timeout=15) -> bool:
-        """等待密码提示并输入密码。
+    def _handle_password(self, timeout=15) -> str:
+        """等待密码提示并输入密码，返回认证结果状态码。
+
+        使用事件驱动的状态机替代固定延时轮询，避免慢网络下误判：
+        1. 未发送密码前：匹配密码提示 / yes-no 确认 / 免密已登录；
+        2. 发送密码后进入认证确认窗口（默认 4 秒）：
+           - 出现 Permission denied 或重复密码提示 → 密码错误；
+           - 出现 shell prompt 特征（$/#/%）→ 认证成功；
+           - 窗口结束仍无失败关键词 → 保守视为认证成功。
 
         Returns:
-            bool: 认证是否成功（成功 = 收到了 shell 输出而非再次密码提示）
+            str: 状态码，取值含义：
+                - 'ok': 认证成功
+                - 'bad_password': 密码错误（Permission denied 或重复密码提示）
+                - 'ssh_exited': ssh 进程提前退出（连接被拒/网络不通）
+                - 'timeout': 等待密码提示整体超时
+                - 'io_error': PTY 读取异常
+
+        Warning:
+            本方法在确认窗口内最多阻塞约 4 秒（网络正常时通常 <1 秒即返回）；
+            返回 'ok' 仅代表"未观察到失败证据"，极端慢网络下仍可能误判成功，
+            后续 send_command 失败时可视为认证未真正完成。
         """
         buf = b''
         deadline = time.monotonic() + timeout
+        auth_pending = False        # 是否已发送密码，等待认证确认
+        confirm_deadline = 0.0      # 认证确认窗口截止时间（发送密码后 +4s）
 
         while time.monotonic() < deadline:
-            rlist, _, _ = select.select([self.master_fd], [], [], 0.5)
+            # 认证确认窗口结束且未出现失败关键词 → 视为成功
+            if auth_pending and time.monotonic() >= confirm_deadline:
+                return 'ok'
+
+            rlist, _, _ = select.select([self.master_fd], [], [], 0.3)
             if rlist:
                 try:
                     chunk = os.read(self.master_fd, 4096)
                 except OSError:
-                    return False
+                    return 'io_error'
                 if not chunk:
-                    return False
+                    return 'ssh_exited'
                 buf += chunk
                 text = buf.decode('utf-8', errors='replace').lower()
 
-                # 密码提示
-                if 'password:' in text or 'passwd:' in text:
-                    self._send_raw(self.password + '\n')
-                    # 等待一小段时间看是否认证成功
-                    time.sleep(1.5)
-                    # 读取后续输出
-                    more = self._read_until('__dummy_never_match__', timeout=3)
-                    more_lower = more.lower()
-                    # 如果又出现了 password 提示，说明密码错误
-                    if 'permission denied' in more_lower or 'password:' in more_lower:
-                        return False
-                    return True
+                if not auth_pending:
+                    # 密码提示（首次）
+                    if 'password:' in text or 'passwd:' in text:
+                        self._send_raw(self.password + '\n')
+                        auth_pending = True
+                        buf = b''
+                        confirm_deadline = time.monotonic() + 4.0
+                        continue
+                    # 首次连接的 yes/no 确认
+                    if 'are you sure you want to continue connecting' in text or 'yes/no' in text:
+                        self._send_raw('yes\n')
+                        buf = b''
+                        continue
+                    # 已有 shell 输出（key-based 认证或已登录）
+                    if '$' in text or '#' in text or '%' in text:
+                        return 'ok'
+                else:
+                    # 已发送密码：判定认证结果
+                    if 'permission denied' in text or 'password:' in text or 'passwd:' in text:
+                        return 'bad_password'
+                    if '$' in text or '#' in text or '%' in text:
+                        return 'ok'
 
-                # 可能是 yes/no 提示（首次连接）
-                if 'are you sure you want to continue connecting' in text or 'yes/no' in text:
-                    self._send_raw('yes\n')
-                    buf = b''
-                    continue
-
-                # 已经有 shell 输出了（可能用了 key-based auth 或已经登录）
-                if '$' in text or '#' in text or '%' in text:
-                    return True
-
-            # ssh 进程退出
+            # ssh 进程退出（连接被拒 / 认证失败次数超限 / 网络断开）
             if self.proc.poll() is not None:
-                return False
+                return 'ssh_exited'
 
-        return False
+        # 整体超时：已发送密码但全程未见失败关键词 → 保守按成功处理
+        if auth_pending:
+            return 'ok'
+        return 'timeout'
 
     # ------------------------------------------------------------------
     # 公开 API
@@ -241,20 +289,13 @@ class InteractiveShell:
                 rc = int(rc_match.group(1))
 
             # 清理输出：
-            # 1. 去掉命令回显行（第一行通常是用户输入的命令回显）
-            # 2. 去掉标记行
-            # 3. 去掉 prompt marker
+            # 1. 去掉命令回显行（PTY 回显时输出即命令原文，精确等值匹配避免误删真实结果）
+            # 2. 去掉标记行与 prompt marker
             lines = output.split('\n')
             cleaned = []
-            skip_first_echo = True
             for line in lines:
-                if skip_first_echo:
-                    # 跳过命令回显（通常是第一行包含命令文本）
-                    if command.strip() in line:
-                        skip_first_echo = False
-                        continue
-                    else:
-                        skip_first_echo = False
+                if line.strip() == command.strip():
+                    continue
                 if self._MARKER in line:
                     continue
                 if self._prompt_marker in line:
