@@ -67,45 +67,52 @@ class InteractiveShell:
         self._closed = False
         self._lock = threading.Lock()
 
-        # 创建 PTY
-        self.master_fd, self.slave_fd = pty.openpty()
-
-        # 关闭 PTY 回显：否则 ssh 输入（如 export PS1="marker"）会被回显到 master，
-        # 导致 _read_until 匹配到「回显文本里的标记」而提前返回（真实应答残留），
-        # send_command 的 marker 解析因此取不到返回码（rc=-1）
+        # 使用 pty.fork() 创建真正拥有 controlling TTY 的 SSH 子进程。
+        # 这比 openpty() + subprocess.Popen() 更适合 OpenSSH 的交互式密码认证：
+        # ssh/readpass 会直接访问 /dev/tty，pty.fork() 可确保它指向当前 PTY 的 slave 端。
         try:
-            import termios
-            attrs = termios.tcgetattr(self.slave_fd)
-            attrs[3] &= ~termios.ECHO
-            termios.tcsetattr(self.slave_fd, termios.TCSANOW, attrs)
-        except Exception:
-            pass  # 平台不支持 termios 时忽略，仅影响回显清理精度
-
-        # 启动 ssh 进程（绑定到 PTY 的 slave 端）
-        # ConnectTimeout 与 expect 路径（execute_command 用 5s）保持一致，避免等待过长
-        ssh_args = [
-            'ssh',
-            '-o', 'StrictHostKeyChecking=no',
-            '-o', 'UserKnownHostsFile=/dev/null',
-            '-o', f'ConnectTimeout={min(connect_timeout, 5)}',
-            '-p', str(port),
-            f'{username}@{ip}',
-        ]
-        try:
-            self.proc = subprocess.Popen(
-                ssh_args,
-                stdin=self.slave_fd,
-                stdout=self.slave_fd,
-                stderr=self.slave_fd,
-                close_fds=True,
-            )
+            pid, master_fd = pty.fork()
         except Exception as e:
-            os.close(self.master_fd)
-            os.close(self.slave_fd)
-            raise RuntimeError(f'启动 ssh 失败: {e}')
+            raise RuntimeError(f'创建 PTY 失败: {e}')
 
-        # 关闭 slave 端（父进程不需要）
-        os.close(self.slave_fd)
+        if pid == 0:
+            # child: 此时 stdin/stdout/stderr 已连接到 PTY slave，
+            # 且该 slave 已成为当前进程的 controlling terminal。
+            try:
+                # 关闭终端回显，避免父进程从 master 端读到自己发送的命令，
+                # 从而误匹配 prompt / marker。
+                try:
+                    import termios
+                    attrs = termios.tcgetattr(0)
+                    attrs[3] &= ~termios.ECHO
+                    termios.tcsetattr(0, termios.TCSANOW, attrs)
+                except Exception:
+                    pass
+
+                ssh_args = [
+                    'ssh',
+                    '-o', 'StrictHostKeyChecking=no',
+                    '-o', 'UserKnownHostsFile=/dev/null',
+                    '-o', f'ConnectTimeout={min(connect_timeout, 5)}',
+                    '-o', 'IdentitiesOnly=yes',
+                    '-o', 'PubkeyAuthentication=no',
+                    '-o', 'PreferredAuthentications=password',
+                    '-o', 'NumberOfPasswordPrompts=1',
+                    '-p', str(port),
+                    f'{username}@{ip}',
+                ]
+                os.execvp('ssh', ssh_args)
+            except Exception as e:
+                # 子进程 exec 失败时只能写 stderr 后立即退出，不能抛回父进程。
+                try:
+                    os.write(2, f'启动 ssh 失败: {e}\n'.encode('utf-8', errors='replace'))
+                finally:
+                    os._exit(127)
+
+        # parent: 只持有 PTY master 与 ssh 子进程 pid。
+        self.pid = pid
+        self.master_fd = master_fd
+        self._child_status = None
 
         # 等待密码提示并输入密码（返回精确失败原因，便于日志定位）
         reason = self._handle_password(connect_timeout)
@@ -119,6 +126,43 @@ class InteractiveShell:
         self._send_raw(f'export PS1="{self._prompt_marker}"\n')
         # 等待第一次 prompt 出现（消费掉初始输出）
         self._read_until(self._prompt_marker, timeout=5)
+
+    def _poll_child(self):
+        """非阻塞检查 SSH 子进程状态。
+
+        Returns:
+            None: 子进程仍在运行
+            int:  子进程已退出，对应退出码（被信号终止时返回 128 + signal）
+        """
+        if self._child_status is not None:
+            return self._child_status
+
+        try:
+            pid, status = os.waitpid(self.pid, os.WNOHANG)
+        except ChildProcessError:
+            # 已被其他 waitpid 回收；按已退出处理。
+            self._child_status = 0
+            return self._child_status
+
+        if pid == 0:
+            return None
+
+        if os.WIFEXITED(status):
+            self._child_status = os.WEXITSTATUS(status)
+        elif os.WIFSIGNALED(status):
+            self._child_status = 128 + os.WTERMSIG(status)
+        else:
+            self._child_status = 1
+        return self._child_status
+
+    def _wait_child(self, timeout=3):
+        """等待 SSH 子进程退出；超时返回 False。"""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self._poll_child() is not None:
+                return True
+            time.sleep(0.05)
+        return self._poll_child() is not None
 
     # ------------------------------------------------------------------
     # 内部 PTY 读写
@@ -156,7 +200,7 @@ class InteractiveShell:
                 if pattern_bytes in buf:
                     break
             # 检查 ssh 进程是否已退出
-            if self.proc.poll() is not None:
+            if self._poll_child() is not None:
                 # 读完剩余输出
                 try:
                     while True:
@@ -206,8 +250,7 @@ class InteractiveShell:
             # 认证确认窗口结束且未出现失败关键词 → 视为成功
             if auth_pending and time.monotonic() >= confirm_deadline:
                 return 'ok'
-
-            rlist, _, _ = select.select([self.master_fd], [], [], 0.3)
+            rlist, _, _ = select.select([self.master_fd], [], [], 1)
             if rlist:
                 try:
                     chunk = os.read(self.master_fd, 4096)
@@ -242,7 +285,7 @@ class InteractiveShell:
                         return 'ok'
 
             # ssh 进程退出（连接被拒 / 认证失败次数超限 / 网络断开）
-            if self.proc.poll() is not None:
+            if self._poll_child() is not None:
                 return 'ssh_exited'
 
         # 整体超时：已发送密码但全程未见失败关键词 → 保守按成功处理
@@ -317,12 +360,18 @@ class InteractiveShell:
             self._send_raw('exit\n')
         except OSError:
             pass
-        try:
-            self.proc.wait(timeout=3)
-        except Exception:
+        if not self._wait_child(timeout=3):
             try:
-                self.proc.kill()
-            except Exception:
+                import signal
+                os.kill(self.pid, signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                pass
+            # 尽量回收子进程，避免 zombie。
+            try:
+                os.waitpid(self.pid, 0)
+            except ChildProcessError:
+                pass
+            except OSError:
                 pass
         try:
             os.close(self.master_fd)
@@ -332,7 +381,7 @@ class InteractiveShell:
     @property
     def is_alive(self) -> bool:
         """会话是否仍然存活。"""
-        return not self._closed and self.proc.poll() is None
+        return not self._closed and self._poll_child() is None
 
     def __del__(self):
         try:

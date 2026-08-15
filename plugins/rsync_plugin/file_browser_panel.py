@@ -580,13 +580,40 @@ class RemoteFileTable(BaseFileTable):
                               path='', is_dir=False)]
         # 使用 ls -laEn（macOS）格式：权限 链接数 所有者 组 大小 月 日 时/年 名称
         # GNU ls 使用 --time-style=long-iso，两者都可由通用解析器处理
-        cmd = f"ls -laEn '{directory}' 2>/dev/null || ls -la --time-style=long-iso '{directory}' 2>/dev/null"
+        # 处理 ~，避免被引号包住后无法展开
+        if directory == '~':
+            remote_dir = '$HOME'
+        elif directory.startswith('~/'):
+            remote_dir = '$HOME/' + directory[2:]
+        else:
+            remote_dir = "'" + directory.replace("'", "'\\''") + "'"
+
+        # macOS: BSD ls，使用 -T
+        # Linux: GNU ls，使用 --time-style=long-iso
+        cmd = (
+            f'if [ "$(uname -s)" = "Darwin" ]; then '
+            f'LC_ALL=C ls -lanT {remote_dir}; '
+            f'else '
+            f'LC_ALL=C ls -lan --time-style=long-iso {remote_dir}; '
+            f'fi'
+        )
+
+        print(f"[debug]{cmd}")
+
         code, out, err = self._exec_remote(ip, cmd, timeout=30)
+        print(f"[debug_out]{out}")
+
         entries: list[FileEntry] = []
         if code != 0:
             msg = (err or out or f'exit {code}').strip().splitlines()
             line = msg[0] if msg else f'无法访问 {directory}'
-            entries.append(FileEntry(name=f'（错误: {line[:50]}）', path='', is_dir=False))
+            entries.append(
+                FileEntry(
+                    name=f'（错误: {line[:50]}）',
+                    path='',
+                    is_dir=False
+                )
+            )
             return entries
 
         # 父目录快捷条目（对应 '..'），若不在根目录
@@ -640,11 +667,11 @@ class RemoteFileTable(BaseFileTable):
             mtime_str = f'{raw_tokens[5]} {raw_tokens[6]}'
             name = _rest_from(7)
         else:
-            # BSD: tokens[5]=Mon, tokens[6]=DD, tokens[7]=HH:MM or YYYY, tokens[8:]=name
+            # BSD: tokens[5]=Mon, tokens[6]=DD, tokens[7]=HH:MM tokens[8:]=YYYY, tokens[9:]=name
             if len(raw_tokens) < 9:
                 return None
-            mtime_str = f'{raw_tokens[5]} {raw_tokens[6]} {raw_tokens[7]}'
-            name = _rest_from(8)
+            mtime_str = f'{raw_tokens[5]} {raw_tokens[6]} {raw_tokens[7]} {raw_tokens[8]}'
+            name = _rest_from(9)
         if not name:
             return None
         # 符号链接处理 "a -> target"
