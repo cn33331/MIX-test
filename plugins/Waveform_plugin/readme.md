@@ -30,9 +30,9 @@ Waveform\_plugin 是一个基于 PyQt6 开发的信号分析工具插件，主�
 
 ## 核心模块
 
-### 1. Waveform\_plugin.py
+### 1. Waveform_plugin.py
 
-- 主插件类，基于 PyQt6 实现 GUI 界面
+- 主插件类 (v3)，基于 PyQt6 实现 GUI 界面
 - 处理用户交互，调用其他模块进行数据处理和分析
 - 实现波形显示窗口和频谱分析窗口
 
@@ -42,30 +42,45 @@ Waveform\_plugin 是一个基于 PyQt6 开发的信号分析工具插件，主�
 - 使用 scipy.fft 进行 FFT 计算，性能更优
 - 支持多种窗函数和计算模式
 
-### 3. code\_to\_mvolt.py
+### 3. fft_processor.py + fft_processor (C 可执行文件)
+
+- C 语言加速的 FFT 处理封装，不依赖 scipy
+- 全部 FFT 与频谱算法在 C 代码中完成，性能更高
+- 三种能力：
+  - `generate_amplitude_csv()` — Bin 文件直接解码为单列电压幅值 CSV
+  - `generate_fft_csv()` — 按频率范围生成三列 CSV（频率/幅值/dbm），含加窗 FFT + 二次插值
+  - `get_frequency_info()` — 返回基频/RMS/THD/THD+N 等完整频谱信息
+- 支持命令行直接调用：
+  ```bash
+  python fft_processor.py csv  <输入.bin> <输出.csv> <采样率> <窗类型> <增益>
+  python fft_processor.py freq <输入.bin> <目标频率Hz> <采样率> <窗类型> <增益>
+  python fft_processor.py fft  <输入.bin> <输出.csv> <采样率> <窗类型> <增益> <start> <step> <end>
+  ```
+- 窗类型：0 矩形 / 1 平顶 / 2 汉宁 / 3 布莱克曼-哈里斯 / 4 Nuttall
+- C 源码位于项目根目录 `C/` 文件夹
+
+### 4. code_to_mvolt.py
 
 - 实现 bin 文件解析功能，将二进制数据转换为电压值
 - 提供频率计算功能，根据电压数据计算信号频率
 
-### 4. ui/main.py
+### 5. main.ui
 
-- 由 Qt Designer 生成的 UI 界面代码
-- 定义应用程序的界面布局和控件
+- Qt Designer 界面文件，定义应用程序的界面布局和控件
 
 ## 项目结构
 
 ```
 Waveform_plugin/
-├── Waveform_plugin.py   # 主插件类
-├── FFT.py               # FFT 分析模块
-├── FFT_debug.py         # FFT 调试模块
-├── code_to_mvolt.py     # 数据转换模块
-├── ui/                  # UI 界面文件夹
-│   ├── __init__.py
-│   ├── main.py          # 生成的 UI 代码
-│   └── main.ui          # Qt Designer 界面文件
-├── readme.md            # 项目说明文档
-└── requirements.txt     # 项目依赖
+├── Waveform_plugin.py   # 主插件类 (v3)
+├── FFT.py               # FFT 分析模块 (scipy)
+├── fft_processor.py     # C 加速 FFT 封装
+├── fft_processor        # C 编译的可执行文件
+├── code_to_mvolt.py     # Bin→CSV 数据转换模块
+├── main.ui              # Qt Designer 界面文件
+├── dbm.png              # 频谱分析示例图
+├── requirements.txt     # 插件依赖
+└── readme.md            # 项目说明文档
 ```
 
 ## 安装与运行
@@ -96,7 +111,8 @@ pip install -r requirements.txt
 ## 技术特点
 
 - **高性能 FFT**：使用 scipy.fft 进行快速傅里叶变换，性能优异
-- **多窗函数支持**：提供多种窗函数选择，适应不同的分析需求
+- **C 加速可选**：fft_processor 可执行文件提供更高性能的 FFT 计算，不依赖 scipy
+- **多窗函数支持**：提供多种窗函数选择（矩形/平顶/汉宁/布莱克曼-哈里斯/Nuttall），适应不同的分析需求
 - **多种计算模式**：支持 Fixture 和 Fixture_plus 两种计算模式，灵活适应不同场景
 - **轻量级可视化**：使用 PyQt6 QPainter 实现自定义绘图，无需 matplotlib
 - **用户友好**：支持拖放操作，界面简洁易用
@@ -122,6 +138,21 @@ pip install -r requirements.txt
 - 导入生成的 UI 类到主应用程序
 
 ```bash
-python3 -m PyQt6.uic.pyuic ui/main.ui -o ui/main.py
+python3 -m PyQt6.uic.pyuic main.ui -o ui_main.py
 ```
+
+### 重新编译 C 加速模块
+
+fft_processor 的 C 源码位于项目根目录 `C/` 文件夹，修改后需重新编译：
+
+```bash
+cd /path/to/MIX-test/C
+gcc -O2 -o ../plugins/Waveform_plugin/fft_processor fft_processor.c -lm
+```
+
+## 版本历史
+
+- v3: 集成 C 加速 fft_processor，新增 Nuttall 窗函数，完善 THD/THD+N 计算
+- v2: 优化 FFT 计算，增加多种窗函数和计算模式
+- v1: 初始版本，基础波形和频谱分析
 

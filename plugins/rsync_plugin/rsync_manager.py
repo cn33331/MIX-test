@@ -82,7 +82,13 @@ class RsyncManager:
             list: subprocess命令参数列表 ['expect', '-c', script]
         """
         rsync_args = ['-avhz']
-        ssh_opts = f'ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {self.port}'
+        # ssh 复用 InteractiveShell 建立的 ControlMaster 主连接（同一 ControlPath）：
+        # 设备 sshd 并发会话受限时不再新建连接；无主连接时自动回退独立认证。
+        ssh_opts = (
+            f'ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null '
+            f'-o ControlPath=/tmp/mix_ssh_mux_{ip}_{self.port}.sock '
+            f'-p {self.port}'
+        )
         if delete:
             rsync_args.append('--delete')
         if extra_args:

@@ -37,11 +37,12 @@ UART_debug_plugin 是一个专业的串口通信调试工具，提供串口扫�
 
 ```
 UART_debug_plugin/
-├── UART_debug_plugin.py      # 主插件类
-├── UART_debug_plugin.ui      # Qt Designer界面文件
-├── uart_manager.py          # 串口管理核心模块
-└── uart/                    # 串口工具
-    └── uart_debug_Virtual.py # 虚拟串口创建工具
+├── UART_debug_plugin.py      # 主插件类 (v1.0)
+├── UART_debug_plugin.ui      # Qt Designer 界面文件
+├── uart_manager.py           # 串口管理核心模块
+├── uart/                     # 串口工具
+│   └── uart_debug_Virtual.py #   虚拟串口创建工具
+└── readme.md                 # 本文档
 ```
 
 ## 核心模块

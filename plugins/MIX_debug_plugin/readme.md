@@ -43,14 +43,15 @@ MIX_debug_plugin 是一个功能完整的MIX设备调试工具，提供多通道
 
 ```
 MIX_debug_plugin/
-├── MIX_debug_plugin.py      # 主插件类
-├── MIX_debug_plugin.ui      # Qt Designer界面文件
-├── rpc_client.py           # RPC客户端封装
-├── mix/                     # MIX协议实现
-│   ├── __init__.py
-│   ├── mix8_rpc_client.py   # MIX8 RPC客户端
-│   └── mix8_rpc_server.py   # 模拟RPC服务器
-└── readme.md               # 本文档
+├── MIX_debug_plugin.py      # 主插件类 (v4)
+├── MIX_debug_plugin.ui      # Qt Designer 界面文件
+├── rpc_client.py            # RPC 客户端封装
+├── mix/                     # MIX 协议实现
+│   ├── mix8_rpc_client.py   #   MIX8 RPC 客户端（ZeroMQ DEALER）
+│   ├── mix8_rpc_server.py   #   模拟 RPC 服务器（开发测试用）
+│   ├── mix8_rpc_server.sh   #   服务器启动脚本（自动关闭端口占用）
+│   └── readme.md            #   MIX_2.0 RPC 协议注册机制详解
+└── readme.md                # 本文档
 ```
 
 ## 核心模块
@@ -88,11 +89,29 @@ MIX8 RPC通信实现，遵循MIX_2.0协议：
 
 ### 模拟服务器 (`mix/mix8_rpc_server.py`)
 
-用于开发和测试的模拟RPC服务器：
+用于开发和测试的模拟 RPC 服务器：
 
 - 模拟多个设备服务（power、relay、baseboard）
 - 支持注册失败模拟测试
-- 兼容RPC8和RPC7格式
+- 兼容 RPC8 和 RPC7 格式
+
+### 服务器启动脚本 (`mix/mix8_rpc_server.sh`)
+
+便捷的模拟服务器启动脚本：
+
+- 自动检测并关闭占用 7801 端口的进程
+- 自动激活虚拟环境
+- 支持 `--test-reg-fail` 参数模拟注册失败场景
+
+### MIX_2.0 协议文档 (`mix/readme.md`)
+
+详细的协议注册机制文档，包含：
+
+- DEALER-ROUTER 通信模式架构图
+- 完整的注册时序（version → hello → get_all_services）
+- 客户端 ID 生成与管理机制
+- 服务端请求分发验证逻辑
+- 常见错误码与故障排除
 
 ## 使用方法
 
@@ -171,5 +190,6 @@ zjx - MIX调试工具 by zjx
 
 ## 版本历史
 
+- v4: 优化协议实现，添加详细调试日志，完善通道管理
 - v2.0: 优化协议实现，添加详细调试日志
 - v1.0: 初始版本

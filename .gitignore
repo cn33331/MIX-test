@@ -13,3 +13,4 @@ plugins/MIX_debug_plugin/mix/
 plugins/libs/
 soft_copyright/
 .trae/
+.workbuddy/

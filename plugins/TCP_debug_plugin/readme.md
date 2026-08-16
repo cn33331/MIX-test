@@ -37,10 +37,11 @@ TCP_debug_plugin 是一个功能全面的TCP网络调试工具，提供TCP服务
 
 ```
 TCP_debug_plugin/
-├── TCP_debug_plugin.py      # 主插件类
-├── TCP_debug_plugin.ui      # Qt Designer界面文件（可选）
+├── TCP_debug_plugin.py      # 主插件类 (v1.1)
 └── readme.md               # 本文档
 ```
+
+> 界面代码内嵌在 Python 文件中，无独立 .ui 文件。
 
 ## 核心模块
 
@@ -181,6 +182,7 @@ class TCPClientWorker(QObject):
 - 发送消息时确保连接正常
 - 关闭插件时会自动断开所有连接
 - 日志显示使用等宽字体确保对齐
+- 消息编码统一使用 UTF-8
 
 ## 故障排除
 

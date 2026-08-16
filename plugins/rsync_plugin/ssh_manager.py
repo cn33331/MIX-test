@@ -98,6 +98,12 @@ class InteractiveShell:
                     '-o', 'PubkeyAuthentication=no',
                     '-o', 'PreferredAuthentications=password',
                     '-o', 'NumberOfPasswordPrompts=1',
+                    # 多路复用主连接：rsync/scp 等其它 ssh 可通过同一 ControlPath
+                    # 复用本会话，避免在设备 sshd 并发会话受限时额外建立连接；
+                    # ControlPersist=0 保证本会话退出后立即清理 socket，无后台残留
+                    '-o', 'ControlMaster=auto',
+                    '-o', f'ControlPath=/tmp/mix_ssh_mux_{ip}_{port}.sock',
+                    '-o', 'ControlPersist=0',
                     '-p', str(port),
                     f'{username}@{ip}',
                 ]
@@ -352,7 +358,11 @@ class InteractiveShell:
             return rc, stdout
 
     def close(self):
-        """关闭交互式 shell 会话。"""
+        """关闭交互式 shell 会话。
+
+        发送 exit 后持续排空 PTY 缓冲（否则 ssh 因写阻塞无法及时退出），
+        超时后依次 SIGTERM → SIGKILL，尽量快速返回避免退出卡顿。
+        """
         if self._closed:
             return
         self._closed = True
@@ -360,18 +370,30 @@ class InteractiveShell:
             self._send_raw('exit\n')
         except OSError:
             pass
-        if not self._wait_child(timeout=3):
+
+        # 排空 PTY 缓冲并等待子进程退出（最多 2 秒）
+        drain_deadline = time.monotonic() + 2.0
+        while time.monotonic() < drain_deadline:
+            if self._poll_child() is not None:
+                break
+            rlist, _, _ = select.select([self.master_fd], [], [], 0.05)
+            if rlist:
+                try:
+                    os.read(self.master_fd, 4096)
+                except OSError:
+                    break
+
+        if not self._wait_child(timeout=1.5):
             try:
                 import signal
-                os.kill(self.pid, signal.SIGKILL)
+                # 先优雅终止，再强制杀死
+                os.kill(self.pid, signal.SIGTERM)
+                if not self._wait_child(timeout=0.5):
+                    os.kill(self.pid, signal.SIGKILL)
+                    os.waitpid(self.pid, 0)
             except (ProcessLookupError, OSError):
                 pass
-            # 尽量回收子进程，避免 zombie。
-            try:
-                os.waitpid(self.pid, 0)
             except ChildProcessError:
-                pass
-            except OSError:
                 pass
         try:
             os.close(self.master_fd)
