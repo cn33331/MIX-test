@@ -6,92 +6,82 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1200</width>
-    <height>750</height>
+    <width>1280</width>
+    <height>800</height>
    </rect>
   </property>
   <property name="minimumSize">
    <size>
-    <width>1000</width>
-    <height>600</height>
+    <width>1080</width>
+    <height>640</height>
    </size>
   </property>
   <property name="windowTitle">
    <string>MIX-debug by:zjx</string>
   </property>
   <widget class="QWidget" name="centralWidget">
-   <layout class="QHBoxLayout" name="mainLayout">
+   <property name="styleSheet">
+    <string notr="true">QWidget#centralWidget { background: #f4f5f7; }
+QLabel#panelTitle { font-weight: bold; color: #555555; padding: 2px 2px; }
+QLineEdit { background: #ffffff; border: 1px solid #d0d0d0; border-radius: 4px; padding: 4px 8px; font-size: 13px; }
+QLineEdit:focus { border-color: #0078d4; }
+QTextEdit#cmdInfoText { border: 1px solid #d0d0d0; border-radius: 4px; background: #fafafa; color: #444444; font-size: 12px; }
+QTextEdit#logText { font-family: &quot;SF Mono&quot;, Menlo, monospace; font-size: 12px; background: #1e1e1e; color: #d4d4d4; border: none; }
+QTabWidget::pane { border: 1px solid #d0d0d0; border-radius: 4px; }
+QTabBar::tab { padding: 4px 14px; font-size: 12px; background: transparent; }
+QTabBar::tab:selected { color: #0078d4; border-bottom: 2px solid #0078d4; }
+QListWidget { border: 1px solid #d0d0d0; border-radius: 4px; font-size: 12px; background: #ffffff; }
+QListWidget::item { padding: 4px 6px; }
+QListWidget::item:selected { background: #e8f0fe; color: #0078d4; }
+QTableWidget { border: 1px solid #d0d0d0; gridline-color: #eeeeee; font-size: 12px; background: #ffffff; }
+QHeaderView::section { font-size: 12px; padding: 4px; background: #f5f5f5; border: none; border-bottom: 1px solid #d0d0d0; }
+QPushButton { border: 1px solid #cccccc; border-radius: 4px; padding: 3px 10px; background: #ffffff; color: #444444; font-size: 12px; }
+QPushButton:hover { border-color: #0078d4; color: #0078d4; }
+QPushButton:pressed { background: #eef4fb; }
+QPushButton#primaryButton { background: #0078d4; color: #ffffff; border: none; border-radius: 4px; padding: 5px 18px; font-size: 13px; }
+QPushButton#primaryButton:hover { background: #106ebe; color: #ffffff; }
+QPushButton#primaryButton:pressed { background: #005a9e; color: #ffffff; }
+QPushButton#accentButton { background: #e8f0fe; color: #0078d4; border: 1px solid #b6d3f5; border-radius: 4px; padding: 6px 16px; font-size: 13px; }
+QPushButton#accentButton:hover { background: #d6e6fb; }
+QPushButton#accentButton:pressed { background: #c2d9f7; }</string>
+   </property>
+   <layout class="QVBoxLayout" name="mainLayout">
     <property name="spacing">
-     <number>4</number>
+     <number>6</number>
     </property>
     <property name="leftMargin">
-     <number>4</number>
+     <number>6</number>
     </property>
     <property name="topMargin">
-     <number>4</number>
+     <number>6</number>
     </property>
     <property name="rightMargin">
-     <number>4</number>
+     <number>6</number>
     </property>
     <property name="bottomMargin">
-     <number>4</number>
+     <number>6</number>
     </property>
-    <item>
-     <widget class="QWidget" name="leftWidget">
-      <layout class="QVBoxLayout" name="leftLayout">
-       <property name="spacing">
-        <number>2</number>
-       </property>
-       <property name="leftMargin">
-        <number>0</number>
-       </property>
-       <property name="topMargin">
-        <number>0</number>
-       </property>
-       <property name="rightMargin">
-        <number>0</number>
-       </property>
-       <property name="bottomMargin">
-        <number>0</number>
-       </property>
-       <item>
-        <widget class="QLabel" name="logLabel">
-         <property name="text">
-          <string>系统日志</string>
-         </property>
-         <property name="styleSheet">
-          <string>QLabel { font-weight: bold; color: #666; padding: 2px 4px; }</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QTabWidget" name="logTabWidget">
-         <property name="styleSheet">
-          <string>QTabWidget::tab-bar { alignment: left; } QTabWidget::tab { padding: 4px 12px; font-size: 12px; } QTabWidget::tab:selected { background: #e8f0fe; border-color: #0078d4; } QTextEdit { font-family: "SF Mono", Monaco, Menlo, monospace; font-size: 12px; background: #1e1e1e; color: #d4d4d4; border: none; }</string>
-         </property>
-         <widget class="QTextEdit" name="logText">
-          <property name="readOnly">
-           <bool>true</bool>
-          </property>
-         </widget>
-         <tabstop>logText</tabstop>
-        </widget>
-       </item>
-      </layout>
-     </widget>
-    </item>
     <item>
      <widget class="QSplitter" name="mainSplitter">
       <property name="orientation">
        <enum>Qt::Horizontal</enum>
       </property>
       <property name="handleWidth">
-       <number>4</number>
+       <number>6</number>
       </property>
-      <widget class="QWidget" name="midWidget">
-       <layout class="QVBoxLayout" name="midLayout">
+      <property name="childrenCollapsible">
+       <bool>false</bool>
+      </property>
+      <widget class="QWidget" name="leftPanel">
+       <property name="minimumSize">
+        <size>
+         <width>320</width>
+         <height>0</height>
+        </size>
+       </property>
+       <layout class="QVBoxLayout" name="leftLayout">
         <property name="spacing">
-         <number>4</number>
+         <number>6</number>
         </property>
         <property name="leftMargin">
          <number>0</number>
@@ -106,363 +96,131 @@
          <number>0</number>
         </property>
         <item>
-         <widget class="QWidget" name="ipWidget">
-          <property name="minimumSize">
-           <size>
-            <width>0</width>
-            <height>130</height>
-           </size>
+         <layout class="QHBoxLayout" name="channelToolbarLayout">
+          <property name="spacing">
+           <number>4</number>
           </property>
-          <property name="maximumSize">
-           <size>
-            <width>16777215</width>
-            <height>150</height>
-           </size>
-          </property>
-          <layout class="QVBoxLayout" name="ipLayout">
-           <property name="spacing">
-            <number>2</number>
-           </property>
-           <property name="leftMargin">
-            <number>0</number>
-           </property>
-           <property name="topMargin">
-            <number>0</number>
-           </property>
-           <property name="rightMargin">
-            <number>0</number>
-           </property>
-           <property name="bottomMargin">
-            <number>0</number>
-           </property>
-           <item>
-            <widget class="QLabel" name="ipLabel">
-             <property name="text">
-              <string>通道管理</string>
-             </property>
-             <property name="styleSheet">
-              <string>QLabel { font-weight: bold; color: #666; padding: 2px 4px; }</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QScrollArea" name="scrollArea">
-             <property name="widgetResizable">
-              <bool>true</bool>
-             </property>
-             <property name="styleSheet">
-              <string>QScrollArea { border: 1px solid #d0d0d0; border-radius: 3px; }</string>
-             </property>
-             <widget class="QWidget" name="scrollAreaWidgetContents">
-              <property name="geometry">
-               <rect>
-                <x>0</x>
-                <y>0</y>
-                <width>400</width>
-                <height>90</height>
-               </rect>
-              </property>
-              <layout class="QVBoxLayout" name="scrollLayout">
-               <property name="spacing">
-                <number>0</number>
-               </property>
-               <property name="leftMargin">
-                <number>0</number>
-               </property>
-               <property name="topMargin">
-                <number>0</number>
-               </property>
-               <property name="rightMargin">
-                <number>0</number>
-               </property>
-               <property name="bottomMargin">
-                <number>0</number>
-               </property>
-               <item>
-                <widget class="QTableWidget" name="ipTable">
-                 <property name="editTriggers">
-                  <set>QAbstractItemView::DoubleClicked</set>
-                 </property>
-                 <property name="selectionMode">
-                  <enum>QAbstractItemView::MultiSelection</enum>
-                 </property>
-                 <property name="selectionBehavior">
-                  <enum>QAbstractItemView::SelectRows</enum>
-                 </property>
-                 <property name="rowCount">
-                  <number>1</number>
-                 </property>
-                 <property name="columnCount">
-                  <number>5</number>
-                 </property>
-                 <property name="styleSheet">
-                  <string>QTableWidget { font-size: 11px; gridline-color: #e8e8e8; } QHeaderView::section { font-size: 11px; padding: 4px; background: #f5f5f5; border: none; border-bottom: 1px solid #d0d0d0; }</string>
-                 </property>
-                 <attribute name="horizontalHeaderDefaultSectionSize">
-                  <number>60</number>
-                 </attribute>
-                 <attribute name="verticalHeaderDefaultSectionSize">
-                  <number>22</number>
-                 </attribute>
-                 <attribute name="verticalHeaderVisible">
-                  <bool>false</bool>
-                 </attribute>
-                 <row/>
-                 <column>
-                  <property name="text">
-                   <string>通道</string>
-                  </property>
-                 </column>
-                 <column>
-                  <property name="text">
-                   <string>IP地址</string>
-                  </property>
-                 </column>
-                 <column>
-                  <property name="text">
-                   <string>端口</string>
-                  </property>
-                 </column>
-                 <column>
-                  <property name="text">
-                   <string>状态</string>
-                  </property>
-                 </column>
-                 <column>
-                  <property name="text">
-                   <string>操作</string>
-                  </property>
-                 </column>
-                </widget>
-               </item>
-              </layout>
-             </widget>
-            </widget>
-           </item>
-          </layout>
-         </widget>
+          <item>
+           <widget class="QLabel" name="channelLabel">
+            <property name="text">
+             <string>通道管理</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="channelToolbarSpacer">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>20</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QPushButton" name="addChannelButton">
+            <property name="toolTip">
+             <string>添加一个通道行</string>
+            </property>
+            <property name="text">
+             <string>＋</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="configChannelButton">
+            <property name="toolTip">
+             <string>批量生成通道（IP/端口序列）</string>
+            </property>
+            <property name="text">
+             <string>配置</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="batchConnectButton">
+            <property name="toolTip">
+             <string>连接选中的通道</string>
+            </property>
+            <property name="text">
+             <string>连接</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="batchDisconnectButton">
+            <property name="toolTip">
+             <string>断开选中的通道</string>
+            </property>
+            <property name="text">
+             <string>断开</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
         </item>
         <item>
-         <widget class="QWidget" name="cmdWidget">
-          <layout class="QVBoxLayout" name="cmdLayout">
-           <property name="spacing">
-            <number>4</number>
+         <widget class="QTableWidget" name="ipTable">
+          <property name="editTriggers">
+           <set>QAbstractItemView::DoubleClicked</set>
+          </property>
+          <property name="selectionMode">
+           <enum>QAbstractItemView::MultiSelection</enum>
+          </property>
+          <property name="selectionBehavior">
+           <enum>QAbstractItemView::SelectRows</enum>
+          </property>
+          <property name="rowCount">
+           <number>0</number>
+          </property>
+          <property name="columnCount">
+           <number>5</number>
+          </property>
+          <attribute name="horizontalHeaderDefaultSectionSize">
+           <number>60</number>
+          </attribute>
+          <attribute name="verticalHeaderDefaultSectionSize">
+           <number>24</number>
+          </attribute>
+          <attribute name="verticalHeaderVisible">
+           <bool>false</bool>
+          </attribute>
+          <column>
+           <property name="text">
+            <string>通道</string>
            </property>
-           <property name="leftMargin">
-            <number>0</number>
+          </column>
+          <column>
+           <property name="text">
+            <string>IP地址</string>
            </property>
-           <property name="topMargin">
-            <number>0</number>
+          </column>
+          <column>
+           <property name="text">
+            <string>端口</string>
            </property>
-           <property name="rightMargin">
-            <number>0</number>
+          </column>
+          <column>
+           <property name="text">
+            <string>状态</string>
            </property>
-           <property name="bottomMargin">
-            <number>0</number>
+          </column>
+          <column>
+           <property name="text">
+            <string>操作</string>
            </property>
-           <item>
-            <layout class="QHBoxLayout" name="cmdInputLayout">
-             <property name="spacing">
-              <number>6</number>
-             </property>
-             <item>
-              <widget class="QLabel" name="cmdLabel">
-               <property name="text">
-                <string>命令:</string>
-               </property>
-               <property name="minimumSize">
-                <size>
-                 <width>40</width>
-                 <height>0</height>
-                </size>
-               </property>
-               <property name="styleSheet">
-                <string>QLabel { color: #555; font-size: 13px; }</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QLineEdit" name="cmdInput">
-               <property name="placeholderText">
-                <string>输入命令或从历史记录选择</string>
-               </property>
-               <property name="styleSheet">
-                <string>QLineEdit { font-size: 13px; padding: 5px 8px; border: 1px solid #d0d0d0; border-radius: 3px; } QLineEdit:focus { border-color: #0078d4; }</string>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </item>
-           <item>
-            <layout class="QHBoxLayout" name="paramInputLayout">
-             <property name="spacing">
-              <number>6</number>
-             </property>
-             <item>
-              <widget class="QLabel" name="paramLabel">
-               <property name="text">
-                <string>参数:</string>
-               </property>
-               <property name="minimumSize">
-                <size>
-                 <width>40</width>
-                 <height>0</height>
-                </size>
-               </property>
-               <property name="styleSheet">
-                <string>QLabel { color: #555; font-size: 13px; }</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QLineEdit" name="paramInput">
-               <property name="placeholderText">
-                <string>参数1 参数2 ... （空格分隔）</string>
-               </property>
-               <property name="styleSheet">
-                <string>QLineEdit { font-size: 13px; padding: 5px 8px; border: 1px solid #d0d0d0; border-radius: 3px; } QLineEdit:focus { border-color: #0078d4; }</string>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </item>
-           <item>
-            <layout class="QHBoxLayout" name="timeoutLayout">
-             <property name="spacing">
-              <number>6</number>
-             </property>
-             <item>
-              <widget class="QLabel" name="timeoutLabel">
-               <property name="text">
-                <string>超时:</string>
-               </property>
-               <property name="minimumSize">
-                <size>
-                 <width>40</width>
-                 <height>0</height>
-                </size>
-               </property>
-               <property name="styleSheet">
-                <string>QLabel { color: #555; font-size: 13px; }</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QLineEdit" name="timeoutInput">
-               <property name="text">
-                <string>30</string>
-               </property>
-               <property name="placeholderText">
-                <string>30</string>
-               </property>
-               <property name="maximumSize">
-                <size>
-                 <width>80</width>
-                 <height>16777215</height>
-                </size>
-               </property>
-               <property name="styleSheet">
-                <string>QLineEdit { font-size: 13px; padding: 5px 8px; border: 1px solid #d0d0d0; border-radius: 3px; } QLineEdit:focus { border-color: #0078d4; }</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QLabel" name="timeoutUnitLabel">
-               <property name="text">
-                <string>秒</string>
-               </property>
-               <property name="styleSheet">
-                <string>QLabel { color: #555; font-size: 13px; }</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <spacer name="timeoutSpacer">
-               <property name="orientation">
-                <enum>Qt::Horizontal</enum>
-               </property>
-               <property name="sizeType">
-                <enum>QSizePolicy::Expanding</enum>
-               </property>
-               <property name="sizeHint" stdset="0">
-                <size>
-                 <width>40</width>
-                 <height>20</height>
-                </size>
-               </property>
-              </spacer>
-             </item>
-             <item>
-              <widget class="QPushButton" name="sendCmdButton">
-               <property name="text">
-                <string>发送</string>
-               </property>
-               <property name="minimumSize">
-                <size>
-                 <width>80</width>
-                 <height>28</height>
-                </size>
-               </property>
-               <property name="styleSheet">
-                <string>QPushButton { background: #0078d4; color: white; border: none; border-radius: 3px; font-size: 13px; padding: 5px 16px; } QPushButton:hover { background: #106ebe; } QPushButton:pressed { background: #005a9e; }</string>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </item>
-          </layout>
-         </widget>
-        </item>
-        <item>
-         <widget class="QWidget" name="cmdInfoWidget">
-          <layout class="QVBoxLayout" name="cmdInfoLayout">
-           <property name="spacing">
-            <number>2</number>
-           </property>
-           <property name="leftMargin">
-            <number>0</number>
-           </property>
-           <property name="topMargin">
-            <number>0</number>
-           </property>
-           <property name="rightMargin">
-            <number>0</number>
-           </property>
-           <property name="bottomMargin">
-            <number>0</number>
-           </property>
-           <item>
-            <widget class="QLabel" name="cmdInfoLabel">
-             <property name="text">
-              <string>命令详情</string>
-             </property>
-             <property name="styleSheet">
-              <string>QLabel { font-weight: bold; color: #666; padding: 2px 4px; }</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QTextEdit" name="cmdInfoText">
-             <property name="readOnly">
-              <bool>true</bool>
-             </property>
-             <property name="styleSheet">
-              <string>QTextEdit { font-size: 12px; border: 1px solid #d0d0d0; border-radius: 3px; background: #fafafa; color: #444; }</string>
-             </property>
-             <property name="plainText">
-              <string>选择一个命令查看详细信息</string>
-             </property>
-            </widget>
-           </item>
-          </layout>
+          </column>
          </widget>
         </item>
        </layout>
       </widget>
-      <widget class="QWidget" name="rightWidget">
-       <layout class="QVBoxLayout" name="rightLayout">
+      <widget class="QWidget" name="centerPanel">
+       <layout class="QVBoxLayout" name="centerLayout">
         <property name="spacing">
-         <number>4</number>
+         <number>6</number>
         </property>
         <property name="leftMargin">
          <number>0</number>
@@ -477,95 +235,251 @@
          <number>0</number>
         </property>
         <item>
-         <widget class="QWidget" name="historyWidget">
-          <layout class="QVBoxLayout" name="historyLayout">
-           <property name="spacing">
-            <number>2</number>
-           </property>
-           <property name="leftMargin">
-            <number>0</number>
-           </property>
-           <property name="topMargin">
-            <number>0</number>
-           </property>
-           <property name="rightMargin">
-            <number>0</number>
-           </property>
-           <property name="bottomMargin">
-            <number>0</number>
-           </property>
-           <item>
-            <widget class="QLabel" name="historyLabel">
-             <property name="text">
-              <string>历史指令</string>
-             </property>
-             <property name="styleSheet">
-              <string>QLabel { font-weight: bold; color: #666; padding: 2px 4px; }</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QListWidget" name="historyList">
-             <property name="styleSheet">
-              <string>QListWidget { font-size: 12px; border: 1px solid #d0d0d0; border-radius: 3px; } QListWidget::item { padding: 4px 6px; } QListWidget::item:selected { background: #e8f0fe; color: #0078d4; }</string>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </widget>
+         <layout class="QHBoxLayout" name="commandBarLayout">
+          <property name="spacing">
+           <number>8</number>
+          </property>
+          <item>
+           <widget class="QLineEdit" name="cmdInput">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+              <horstretch>3</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="minimumSize">
+             <size>
+              <width>260</width>
+              <height>28</height>
+             </size>
+            </property>
+            <property name="placeholderText">
+             <string>输入命令 service.method（回车填入参数）</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="paramInput">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+              <horstretch>2</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="minimumSize">
+             <size>
+              <width>140</width>
+              <height>28</height>
+             </size>
+            </property>
+            <property name="placeholderText">
+             <string>参数1 参数2 ... key=value</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="timeoutLabel">
+            <property name="text">
+             <string>超时</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="timeoutInput">
+            <property name="text">
+             <string>30</string>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>60</width>
+              <height>16777215</height>
+             </size>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="timeoutUnitLabel">
+            <property name="text">
+             <string>秒</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="sendCmdButton">
+            <property name="text">
+             <string>发送</string>
+            </property>
+            <property name="minimumSize">
+             <size>
+              <width>100</width>
+              <height>30</height>
+             </size>
+            </property>
+            <property name="toolTip">
+             <string>发送到所有已连接通道 (Ctrl+Return)</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
         </item>
         <item>
-         <widget class="QWidget" name="sequenceWidget">
-          <layout class="QVBoxLayout" name="sequenceLayout">
-           <property name="spacing">
-            <number>2</number>
+         <widget class="QSplitter" name="centerSplitter">
+          <property name="orientation">
+           <enum>Qt::Vertical</enum>
+          </property>
+          <property name="handleWidth">
+           <number>6</number>
+          </property>
+          <property name="childrenCollapsible">
+           <bool>false</bool>
+          </property>
+          <widget class="QWidget" name="cmdInfoPanel">
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>260</height>
+            </size>
            </property>
-           <property name="leftMargin">
+           <layout class="QVBoxLayout" name="cmdInfoLayout">
+            <property name="spacing">
+             <number>4</number>
+            </property>
+            <property name="leftMargin">
+             <number>0</number>
+            </property>
+            <property name="topMargin">
+             <number>0</number>
+            </property>
+            <property name="rightMargin">
+             <number>0</number>
+            </property>
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
+            <item>
+             <widget class="QLabel" name="cmdInfoLabel">
+              <property name="text">
+               <string>命令详情</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QTextEdit" name="cmdInfoText">
+              <property name="readOnly">
+               <bool>true</bool>
+              </property>
+              <property name="plainText">
+               <string>选择一个命令查看详细信息</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+          <widget class="QTabWidget" name="logTabWidget">
+           <property name="currentIndex">
             <number>0</number>
            </property>
-           <property name="topMargin">
-            <number>0</number>
-           </property>
-           <property name="rightMargin">
-            <number>0</number>
-           </property>
-           <property name="bottomMargin">
-            <number>0</number>
-           </property>
-           <item>
-            <widget class="QLabel" name="sequenceLabel">
-             <property name="text">
-              <string>指令序列</string>
-             </property>
-             <property name="styleSheet">
-              <string>QLabel { font-weight: bold; color: #666; padding: 2px 4px; }</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QListWidget" name="sequenceList">
-             <property name="styleSheet">
-              <string>QListWidget { font-size: 12px; border: 1px solid #d0d0d0; border-radius: 3px; } QListWidget::item { padding: 4px 6px; } QListWidget::item:selected { background: #e8f0fe; color: #0078d4; }</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QPushButton" name="executeSequenceButton">
-             <property name="text">
-              <string>执行序列</string>
-             </property>
-             <property name="minimumSize">
-              <size>
-               <width>0</width>
-               <height>30</height>
-              </size>
-             </property>
-             <property name="styleSheet">
-              <string>QPushButton { background: #6f42c1; color: white; border: none; border-radius: 3px; font-size: 13px; padding: 5px 16px; } QPushButton:hover { background: #5a32a3; } QPushButton:pressed { background: #4a238a; }</string>
-             </property>
-            </widget>
-           </item>
-          </layout>
+           <widget class="QTextEdit" name="logText">
+            <property name="readOnly">
+             <bool>true</bool>
+            </property>
+            <attribute name="title">
+             <string>日志</string>
+            </attribute>
+           </widget>
+          </widget>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="rightPanel">
+       <property name="minimumSize">
+        <size>
+         <width>340</width>
+         <height>0</height>
+        </size>
+       </property>
+       <layout class="QVBoxLayout" name="rightLayout">
+        <property name="spacing">
+         <number>6</number>
+        </property>
+        <property name="leftMargin">
+         <number>0</number>
+        </property>
+        <property name="topMargin">
+         <number>0</number>
+        </property>
+        <property name="rightMargin">
+         <number>0</number>
+        </property>
+        <property name="bottomMargin">
+         <number>0</number>
+        </property>
+        <item>
+         <widget class="QTabWidget" name="rightTabWidget">
+          <property name="currentIndex">
+           <number>0</number>
+          </property>
+          <widget class="QWidget" name="historyTab">
+           <attribute name="title">
+            <string>历史指令</string>
+           </attribute>
+           <layout class="QVBoxLayout" name="historyTabLayout">
+            <property name="leftMargin">
+             <number>0</number>
+            </property>
+            <property name="topMargin">
+             <number>4</number>
+            </property>
+            <property name="rightMargin">
+             <number>0</number>
+            </property>
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
+            <item>
+             <widget class="QListWidget" name="historyList"/>
+            </item>
+           </layout>
+          </widget>
+          <widget class="QWidget" name="sequenceTab">
+           <attribute name="title">
+            <string>指令序列</string>
+           </attribute>
+           <layout class="QVBoxLayout" name="sequenceTabLayout">
+            <property name="spacing">
+             <number>6</number>
+            </property>
+            <property name="leftMargin">
+             <number>0</number>
+            </property>
+            <property name="topMargin">
+             <number>4</number>
+            </property>
+            <property name="rightMargin">
+             <number>0</number>
+            </property>
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
+            <item>
+             <widget class="QListWidget" name="sequenceList"/>
+            </item>
+            <item>
+             <widget class="QPushButton" name="executeSequenceButton">
+              <property name="text">
+               <string>执行序列</string>
+              </property>
+              <property name="minimumSize">
+               <size>
+                <width>0</width>
+                <height>32</height>
+               </size>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
          </widget>
         </item>
        </layout>

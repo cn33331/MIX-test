@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                             QDialog, QSpinBox, QGridLayout, QScrollArea, QComboBox,
                             QCompleter, QListWidget, QListWidgetItem, QMenu, QSplitter, QHeaderView, QSizePolicy)
 from PyQt6.QtCore import Qt, QStringListModel
+from PyQt6.QtGui import QColor
 from PyQt6.uic import loadUi
 import json
 import os
@@ -89,9 +90,9 @@ class MIXDebugPlugin(QMainWindow):
         self.last_sequence_file = None
         self.channel_logs = {}
         self.init_signals()
+        self.init_layout()
         self.load_channels_from_config()
         self.load_history_from_config()
-        self.resizeEvent = self.on_resize
         self.sequence = False
         self.logTabWidget.setTabText(0, '总日志')
     
@@ -119,6 +120,10 @@ class MIXDebugPlugin(QMainWindow):
         """
         self.cmdInput.returnPressed.connect(self.copy_command_to_param)
         self.sendCmdButton.clicked.connect(self.send_command)
+        self.addChannelButton.clicked.connect(self.add_channel_row)
+        self.configChannelButton.clicked.connect(self.show_config_channel_dialog)
+        self.batchConnectButton.clicked.connect(self.batch_connect)
+        self.batchDisconnectButton.clicked.connect(self.batch_disconnect)
         self.historyList.itemDoubleClicked.connect(self.select_history_command)
         self.historyList.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.historyList.customContextMenuRequested.connect(self.show_history_context_menu)
@@ -143,23 +148,60 @@ class MIXDebugPlugin(QMainWindow):
         self.ipTable.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.ipTable.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
     
-    def on_resize(self, event):
-        """窗口大小变化时调整左右面板的尺寸比例。
+    def init_layout(self):
+        """初始化分栏布局的尺寸比例与伸展策略。
 
-        确保右侧面板保持450px宽度，左侧面板占据剩余空间。
+        三段式工作台布局（全部可拖拽调节）：
+        - 左栏：通道管理面板（固定伸缩比 0，不随窗口拉伸）
+        - 中栏：命令栏 + 命令详情/日志垂直分割（伸缩比 1，占据增量空间）
+        - 右栏：历史/序列 Tab 面板（固定伸缩比 0）
+
+        同时为统一 QSS 指定控件角色 objectName（在 loadUi 绑定属性之后
+        设置不影响 self.xxx 引用，样式在首次显示时求值）。
+        """
+        self.sendCmdButton.setObjectName('primaryButton')
+        self.executeSequenceButton.setObjectName('accentButton')
+        self.channelLabel.setObjectName('panelTitle')
+        self.cmdInfoLabel.setObjectName('panelTitle')
+
+        # objectName 在 stylesheet 已加载后变更，需要重新 polish 才能生效
+        for w in (self.sendCmdButton, self.executeSequenceButton,
+                  self.channelLabel, self.cmdInfoLabel):
+            w.style().unpolish(w)
+            w.style().polish(w)
+
+        self.mainSplitter.setChildrenCollapsible(False)
+        self.mainSplitter.setStretchFactor(0, 0)
+        self.mainSplitter.setStretchFactor(1, 1)
+        self.mainSplitter.setStretchFactor(2, 0)
+        self.mainSplitter.setSizes([330, 760, 430])
+
+        self.centerSplitter.setChildrenCollapsible(False)
+        self.centerSplitter.setStretchFactor(0, 0)
+        self.centerSplitter.setStretchFactor(1, 1)
+        self.centerSplitter.setSizes([170, 590])
+
+    STATUS_COLORS = {
+        '已连接': '#2e7d32',
+        '连接中': '#f57f17',
+        '未连接': '#9e9e9e',
+        '连接失败': '#c62828',
+    }
+
+    def _status_item(self, status):
+        """创建带状态色的状态列单元格。
 
         Args:
-            event: QResizeEvent事件对象，包含新的窗口尺寸信息
+            status: 状态文本，如 '已连接' / '未连接'
+
+        Returns:
+            QTableWidgetItem: 前景色随状态着色的单元格
         """
-        width = event.size().width()
-        height = event.size().height()
-        right_width = 450
-        left_width = max(450, width - right_width)
-        
-        if hasattr(self, 'centralWidget') and self.centralWidget:
-            for child in self.centralWidget.children():
-                if isinstance(child, QSplitter):
-                    child.setSizes([int(left_width), int(right_width)])
+        item = QTableWidgetItem(status)
+        color = self.STATUS_COLORS.get(status)
+        if color:
+            item.setForeground(QColor(color))
+        return item
     
     def send_command(self):
         """发送指令到所有已连接通道。
@@ -453,7 +495,7 @@ class MIXDebugPlugin(QMainWindow):
                 self.ipTable.setItem(i, 0, QTableWidgetItem(f'Slot{slot_number}'))
                 self.ipTable.setItem(i, 1, QTableWidgetItem(ip_address))
                 self.ipTable.setItem(i, 2, QTableWidgetItem(str(port)))
-                self.ipTable.setItem(i, 3, QTableWidgetItem('未连接'))
+                self.ipTable.setItem(i, 3, self._status_item('未连接'))
                 
                 connect_btn = QPushButton('连接')
                 connect_btn.clicked.connect(lambda _, r=i: self.connect_channel(r))
@@ -544,7 +586,7 @@ class MIXDebugPlugin(QMainWindow):
             if client.connect():
                 self.log_message(f'通道 {channel_name} 连接成功！')
                 self.rpc_clients[row] = client
-                self.ipTable.setItem(row, 3, QTableWidgetItem('已连接'))
+                self.ipTable.setItem(row, 3, self._status_item('已连接'))
                 connect_btn.setText('断开')
                 
                 commands_info = client.get_all_commands()
@@ -560,7 +602,7 @@ class MIXDebugPlugin(QMainWindow):
                 del self.rpc_clients[row]
             self.log_message(f'通道 {channel_name} 断开成功！')
             
-            self.ipTable.setItem(row, 3, QTableWidgetItem('未连接'))
+            self.ipTable.setItem(row, 3, self._status_item('未连接'))
             connect_btn.setText('连接')
     
     def batch_connect(self):
@@ -624,7 +666,7 @@ class MIXDebugPlugin(QMainWindow):
             self.ipTable.setItem(i, 0, QTableWidgetItem(channel['name']))
             self.ipTable.setItem(i, 1, QTableWidgetItem(channel['ip']))
             self.ipTable.setItem(i, 2, QTableWidgetItem(channel['port']))
-            self.ipTable.setItem(i, 3, QTableWidgetItem('未连接'))
+            self.ipTable.setItem(i, 3, self._status_item('未连接'))
             
             connect_btn = QPushButton('连接')
             connect_btn.setMinimumWidth(40)
@@ -962,7 +1004,7 @@ class MIXDebugPlugin(QMainWindow):
         self.save_channels_to_config()
         
         if column == 1 or column == 2:
-            self.ipTable.setItem(row, 3, QTableWidgetItem('未连接'))
+            self.ipTable.setItem(row, 3, self._status_item('未连接'))
     
     def add_channel_row(self):
         """新增一行通道配置。
@@ -975,7 +1017,7 @@ class MIXDebugPlugin(QMainWindow):
         self.ipTable.setItem(row, 0, QTableWidgetItem(f'Slot{row+1}'))
         self.ipTable.setItem(row, 1, QTableWidgetItem(''))
         self.ipTable.setItem(row, 2, QTableWidgetItem('7801'))
-        self.ipTable.setItem(row, 3, QTableWidgetItem('未连接'))
+        self.ipTable.setItem(row, 3, self._status_item('未连接'))
         
         connect_btn = QPushButton('连接')
         connect_btn.setMinimumWidth(40)
