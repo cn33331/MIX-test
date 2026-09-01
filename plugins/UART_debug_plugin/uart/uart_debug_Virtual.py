@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-虚拟电控板 (Virtual ECB) —— 模拟 SC8278_FCT_ECB 电控板 MCU 串口行为
+虚拟电控板 (Virtual ECB) —— 模拟 ECB 电控板 MCU 串口行为
 
 在没有真实电控板的情况下，用本脚本创建一个虚拟串口（pty），
-它会像真实电控板一样响应《B610_B611项目信息-电控板指令.csv》里定义的指令：
+它会像真实电控板一样响应电控板指令.csv》里定义的指令：
 
   治具动作  : press(e.g. in+down) / release(up+out) / in / out / up / down
   传感器查询 : in? / out? / down? / up? / frontsensor? / rearsensor?
