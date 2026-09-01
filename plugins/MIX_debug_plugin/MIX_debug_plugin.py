@@ -4,13 +4,17 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                             QLabel, QLineEdit, QPushButton, QTextEdit, 
                             QTableWidget, QTableWidgetItem, QGroupBox, 
                             QDialog, QSpinBox, QGridLayout, QScrollArea, QComboBox,
-                            QCompleter, QListWidget, QListWidgetItem, QMenu, QSplitter, QHeaderView, QSizePolicy)
+                            QCompleter, QListWidget, QListWidgetItem, QMenu, QSplitter, QHeaderView, QSizePolicy,
+                            QTreeWidget, QTreeWidgetItem, QInputDialog)
+from PyQt6.QtGui import QColor
 from PyQt6.QtCore import Qt, QStringListModel
 from PyQt6.uic import loadUi
 import json
 import os
 import csv
 import glob
+import ast
+import re
 
 # 添加插件目录到路径
 PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -42,6 +46,100 @@ def get_resource_path(relative_path):
         此函数假设插件目录在外部，不从MEIPASS加载
     """
     return os.path.join(PLUGIN_DIR, relative_path)
+
+def _parse_arg(raw):
+    """将 UI 输入的参数字符串解析为对应的 Python 值。
+
+    使用 ast.literal_eval 尝试把用户输入的文本转换为真实的 Python 字面量
+    （list / tuple / int / float / bool / dict / None / str 等），从而支持
+    类似 ``[[2017,0],[2018,0]]`` 的列表参数原样以列表类型下发。
+    若文本不是合法的 Python 字面量（如设备要求的 ``2017*0,2018*0`` 格式），
+    则保持原字符串不变，交由设备端自行解析。
+
+    Args:
+        raw: 用户输入的单个参数文本。
+
+    Returns:
+        Any: 解析后的 Python 值（列表、数字等），无法解析时返回原字符串。
+    """
+    if raw is None:
+        return None
+    text = str(raw)
+    stripped = text.strip()
+    if not stripped:
+        return text
+    try:
+        return ast.literal_eval(stripped)
+    except (ValueError, SyntaxError):
+        # 非合法字面量（如 "2017*0,2018*0"），保持原字符串
+        return text
+
+def _split_command_args(line):
+    """按空格切分命令与参数，同时尊重方括号/圆括号/花括号/引号等成对结构。
+
+    直接 ``split(' ')`` 会把含空格的 Python 字面量（如 ``[[1001, 0], [1002, 1]]``）
+    拆成多个独立 token，导致一个列表参数被当作多个位置参数下发。
+    本函数逐个字符扫描，遇到 ``[](){}`` 与引号时进入对应层级，在括号/引号内部
+    的空格不会被切分，从而把整个字面量保持为单个 token。
+
+    Args:
+        line: 完整的命令+参数字符串。
+
+    Returns:
+        list: 切分后的 token 列表，第一个为命令，其余为参数。
+
+    Examples:
+        >>> _split_command_args('io_ctrl.set 1001*0,1002*1,1003*0')
+        ['io_ctrl.set', '1001*0,1002*1,1003*0']
+        >>> _split_command_args('io_ctrl.set [[1001, 0], [1002, 1]]')
+        ['io_ctrl.set', '[[1001, 0], [1002, 1]]']
+    """
+    tokens = []
+    current = []
+    # 成对符号的深度统计；键值对/嵌套均统一处理
+    stack = []  # 保存当前进入的开符号，用于匹配与判断是否在成对结构内部
+    pairs = {'(': ')', '[': ']', '{': '}'}
+    closers = {')', ']', '}'}
+
+    i = 0
+    n = len(line)
+    while i < n:
+        ch = line[i]
+        if ch == ' ' and not stack:
+            if current:
+                tokens.append(''.join(current))
+                current = []
+            i += 1
+            continue
+        if ch in pairs:          # 进入成对结构
+            stack.append(pairs[ch])
+            current.append(ch)
+            i += 1
+            continue
+        if ch in closers and stack and ch == stack[-1]:
+            stack.pop()
+            current.append(ch)
+            i += 1
+            continue
+        if ch in ('"', "'"):
+            # 字符串字面量：跳转到关闭引号（不处理转义，够用于参数场景）
+            current.append(ch)
+            quote = ch
+            i += 1
+            while i < n and line[i] != quote:
+                current.append(line[i])
+                i += 1
+            if i < n:
+                current.append(line[i])  # 关闭引号
+                i += 1
+            continue
+        current.append(ch)
+        i += 1
+
+    if current:
+        tokens.append(''.join(current))
+    # 过滤掉空 token
+    return [t for t in tokens if t != '']
 
 class CommandsInfoConfig(BaseJsonConfig):
     """命令信息配置管理器 - 复用通用 JSON 配置基类。
@@ -88,12 +186,14 @@ class MIXDebugPlugin(QMainWindow):
         self.rpc_clients = {}
         self.last_sequence_file = None
         self.channel_logs = {}
+        self._cascading_sequence = False  # 组勾选级联子指令时置位，抑制重复自动保存
         self.init_signals()
         self.load_channels_from_config()
         self.load_history_from_config()
         self.resizeEvent = self.on_resize
         self.sequence = False
         self.logTabWidget.setTabText(0, '总日志')
+        self.autoload_sequence_groups()
     
     def get_widget(self):
         """返回插件的主窗口部件。
@@ -124,6 +224,7 @@ class MIXDebugPlugin(QMainWindow):
         self.historyList.customContextMenuRequested.connect(self.show_history_context_menu)
         self.sequenceList.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.sequenceList.customContextMenuRequested.connect(self.show_sequence_context_menu)
+        self.sequenceList.itemChanged.connect(self.on_sequence_item_changed)
         self.executeSequenceButton.clicked.connect(self.execute_sequence)
         self.logText.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.logText.customContextMenuRequested.connect(self.show_log_context_menu)
@@ -176,7 +277,7 @@ class MIXDebugPlugin(QMainWindow):
             self.log_message('请输入命令和参数')
             return
         
-        parts = command_with_params.split(' ')
+        parts = _split_command_args(command_with_params)
         if len(parts) < 1:
             self.log_message('命令格式错误')
             return
@@ -188,9 +289,9 @@ class MIXDebugPlugin(QMainWindow):
         for part in parts[1:]:
             if '=' in part:
                 key, value = part.split('=', 1)
-                kwargs[key] = value
+                kwargs[key] = _parse_arg(value)
             else:
-                args.append(part)
+                args.append(_parse_arg(part))
         
         if '.' in command:
             service_name, method_name = command.split('.', 1)
@@ -347,6 +448,9 @@ class MIXDebugPlugin(QMainWindow):
                     'QTextEdit { font-family: "SF Mono", Monaco, Menlo, monospace; '
                     'font-size: 12px; background: #1e1e1e; color: #d4d4d4; border: none; }'
                 )
+                # 每个通道日志支持右键清空自身
+                log_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                log_widget.customContextMenuRequested.connect(self.show_log_context_menu)
                 self.logTabWidget.addTab(log_widget, channel_name)
                 self.channel_logs[channel_name] = log_widget
         
@@ -822,26 +926,32 @@ class MIXDebugPlugin(QMainWindow):
             config_manager.save_history(history)
         elif item and action == add_to_sequence_action:
             command = item.text()
-            sequence_item = QListWidgetItem(f"[CMD] {command}")
-            sequence_item.setCheckState(Qt.CheckState.Checked)
-            self.sequenceList.addItem(sequence_item)
+            group = self._ensure_default_group()
+            self._add_child_to_group(group, f"[CMD] {command}")
             self.log_message(f"已添加指令到序列: {command}")
+            self.sequenceList.setCurrentItem(group)
     
     def show_log_context_menu(self, pos):
         """显示日志区域的右键菜单。
 
-        提供清空所有日志内容的选项。
+        支持清空当前标签页日志或所有日志。可从总日志或任意通道日志触发。
 
         Args:
-            pos: 右键点击的位置（相对于控件）
+            pos: 右键点击的位置（相对于触发控件）。
         """
+        sender = self.sender()
+        source = sender if sender is not None else self.logText
+
         menu = QMenu()
-        clear_all_action = menu.addAction("清空所有内容")
-        
-        action = menu.exec(self.logText.mapToGlobal(pos))
-        
-        if action == clear_all_action:
-            self.clear_log()
+        clear_current_action = menu.addAction("清空当前日志")
+        clear_all_action = menu.addAction("清空所有日志")
+
+        action = menu.exec(source.mapToGlobal(pos))
+
+        if action == clear_current_action:
+            self.clear_log(source)
+        elif action == clear_all_action:
+            self.clear_log(None)
     
     def clear_history(self):
         """清空所有历史指令。
@@ -853,12 +963,21 @@ class MIXDebugPlugin(QMainWindow):
         config_manager.save_history([])
         self.log_message("已清空所有历史指令")
     
-    def clear_log(self):
-        """清空所有日志内容。
+    def clear_log(self, target=None):
+        """清空日志内容。
 
         仅清空界面显示，不影响日志文件。
+
+        Args:
+            target: 指定要清空的日志控件（QTextEdit）。
+                为 None 时清空总日志以及所有通道日志；为具体控件时只清空该控件。
         """
+        if isinstance(target, QTextEdit):
+            target.clear()
+            return
         self.logText.clear()
+        for channel_name, log_widget in self.channel_logs.items():
+            log_widget.clear()
     
     def open_sequence_file(self):
         """打开序列组原始文件。
@@ -882,49 +1001,88 @@ class MIXDebugPlugin(QMainWindow):
             self.log_message("请先加载一个序列组")
     
     def show_sequence_context_menu(self, position):
-        """显示序列列表的右键菜单。
+        """显示序列树（序列组）的右键菜单。
 
-        提供添加延迟、添加暂停、清空序列、保存/加载序列组、修改、删除等操作。
+        根据点击位置决定操作对象：
+        - 点击序列组：提供重命名、新建组、启用/停用组、勾选/取消全部、保存/清空该组等。
+        - 点击组内指令：提供修改、删除、上下移动等。
+        - 空白处：通用操作（新建组、添加延迟/暂停、加载/保存序列组等）。
 
         Args:
-            position: 右键点击的位置（相对于控件）
+            position: 右键点击的位置（相对于控件）。
         """
         menu = QMenu()
-        
+
+        item = self.sequenceList.itemAt(position)
+        # 顶层项视为序列组
+        is_group = item is not None and self.sequenceList.indexOfTopLevelItem(item) >= 0
+
         add_delay_action = menu.addAction("添加延迟")
         add_pause_action = menu.addAction("添加暂停")
         menu.addSeparator()
-        clear_sequence_action = menu.addAction("清空序列")
+
+        new_group_action = menu.addAction("新建序列组")
         save_sequence_action = menu.addAction("保存序列组")
+        save_all_action = menu.addAction("保存所有序列组")
         load_sequence_action = menu.addAction("加载序列组")
+        menu.addSeparator()
+        clear_all_action = menu.addAction("清空所有序列")
         open_sequence_file_action = menu.addAction("打开序列组原始文件")
-        
-        item = self.sequenceList.itemAt(position)
-        if item:
+
+        # 先统一置为 None，保证后续分发不会引用未定义变量（防止点击组/空白时报错）
+        rename_group_action = check_all_action = uncheck_all_action = delete_group_action = \
+            modify_action = delete_action = move_up_action = move_down_action = None
+
+        if is_group:
+            menu.addSeparator()
+            rename_group_action = menu.addAction("重命名序列组")
+            check_all_action = menu.addAction("勾选全部")
+            uncheck_all_action = menu.addAction("取消勾选全部")
+            delete_group_action = menu.addAction("删除序列组")
+        elif item is not None:
             menu.addSeparator()
             modify_action = menu.addAction("修改")
             delete_action = menu.addAction("删除")
-        
+            move_up_action = menu.addAction("上移")
+            move_down_action = menu.addAction("下移")
+
         action = menu.exec(self.sequenceList.mapToGlobal(position))
-        
+
+        if action is None:
+            return
+
         if action == add_delay_action:
             self.add_delay_to_sequence()
         elif action == add_pause_action:
             self.add_pause_to_sequence()
-        elif action == clear_sequence_action:
-            self.clear_sequence()
+        elif action == new_group_action:
+            self.new_sequence_group()
         elif action == save_sequence_action:
             self.save_sequence_group()
+        elif action == save_all_action:
+            self.save_all_sequence_groups()
         elif action == load_sequence_action:
             self.load_sequence_group()
+        elif action == clear_all_action:
+            self.clear_sequence()
         elif action == open_sequence_file_action:
             self.open_sequence_file()
-        elif item and action == modify_action:
+        elif is_group and action == rename_group_action:
+            self.rename_sequence_group(item)
+        elif is_group and action == check_all_action:
+            self.set_group_checked(item, True)
+        elif is_group and action == uncheck_all_action:
+            self.set_group_checked(item, False)
+        elif is_group and action == delete_group_action:
+            self.delete_sequence_group(item)
+        elif item is not None and action is not None and action == modify_action:
             self.modify_sequence_item(item)
-        elif item and action == delete_action:
-            row = self.sequenceList.row(item)
-            self.sequenceList.takeItem(row)
-            self.log_message("已从序列中删除指令")
+        elif item is not None and action is not None and action == delete_action:
+            self.delete_sequence_item(item)
+        elif item is not None and action is not None and action == move_up_action:
+            self.move_sequence_item(item, up=True)
+        elif item is not None and action is not None and action == move_down_action:
+            self.move_sequence_item(item, up=False)
     
     def show_channel_context_menu(self, pos):
         """显示通道列表的右键菜单。
@@ -986,79 +1144,305 @@ class MIXDebugPlugin(QMainWindow):
         
         self.log_message(f'已新增通道: Slot{row+1}')
     
+    # ------------------------------------------------------------------ #
+    # 序列组（QTreeWidget）辅助方法
+    # ------------------------------------------------------------------ #
+
+    def _apply_group_style(self, group):
+        """给序列组节点应用加粗样式，与普通指令节点区分。
+
+        Args:
+            group: 顶层序列组节点。
+        """
+        font = group.font(0)
+        font.setBold(True)
+        group.setFont(0, font)
+        group.setForeground(0, QColor('#6f42c1'))
+
+    def on_sequence_item_changed(self, item, column):
+        """序列节点勾选状态变化时的处理。
+
+        顶层序列组节点的勾选框被切换时，级联同步其下所有指令的勾选状态（整组启停），
+        并自动保存该组。子指令勾选互不影响。自动保存期间级联置位以抑制重复写入。
+
+        Args:
+            item: 发生变化的节点。
+            column: 变化所在的列索引。
+        """
+        if column != 0:
+            return
+        if item.parent() is not None:
+            # 子节点（指令）自身勾选变化：若不在级联过程中则自动保存所属组
+            if not self._cascading_sequence:
+                self._auto_save_group(item.parent())
+            return
+        # 顶层节点即序列组：级联其子指令
+        self._cascading_sequence = True
+        try:
+            state = item.checkState(0)
+            for ci in range(item.childCount()):
+                child = item.child(ci)
+                if child.checkState(0) != state:
+                    child.setCheckState(0, state)
+        finally:
+            self._cascading_sequence = False
+        self._auto_save_group(item)
+
+    def _resolve_target_group(self, item=None):
+        """解析“添加操作”的目标序列组。
+
+        优先级：
+        1. 若 action item 指向某个组则用该组；指向组内指令则用其所属组；
+        2. 否则用当前选中的顶层组（或当前选中的指令所属组）：
+        3. 否则返回第一个顶层组；没有任何组时返回 None。
+
+        Args:
+            item: 可选的点击项（组或指令）。
+
+        Returns:
+            QTreeWidgetItem: 目标序列组顶层节点，无组时返回 None。
+        """
+        candidate = None
+        if item is not None:
+            if self.sequenceList.indexOfTopLevelItem(item) >= 0:
+                candidate = item
+            elif item.parent() is not None:
+                candidate = item.parent()
+        if candidate is None:
+            current = self.sequenceList.currentItem()
+            if current is not None:
+                if self.sequenceList.indexOfTopLevelItem(current) >= 0:
+                    candidate = current
+                elif current.parent() is not None:
+                    candidate = current.parent()
+        if candidate is None and self.sequenceList.topLevelItemCount() > 0:
+            candidate = self.sequenceList.topLevelItem(0)
+        return candidate
+
+    def _target_group_or_create(self, item=None):
+        """返回“添加操作”的目标组；没有任何组时自动新建一个序列组。
+
+        Args:
+            item: 可选的点击项。
+
+        Returns:
+            QTreeWidgetItem: 目标序列组顶层节点；新建被取消时返回 None。
+        """
+        group = self._resolve_target_group(item)
+        if group is not None:
+            return group
+        return self.new_sequence_group()
+
+    def _auto_save_group(self, group):
+        """修改序列组后自动保存到磁盘。
+
+        仅在有子指令时保存；空组不落盘，避免产生空文件。级联期间自动跳过。
+
+        Args:
+            group: 顶层序列组节点；None 时忽略。
+        """
+        if group is None:
+            return
+        if self._cascading_sequence:
+            return
+        # 无子指令的空组不保存
+        if group.childCount() == 0:
+            return
+        self._save_one_group(group)
+
+    def new_sequence_group(self, name=None):
+        """新建一个空的序列组。
+
+        Args:
+            name: 组名，为 None 时弹出输入对话框。
+
+        Returns:
+            QTreeWidgetItem: 新建的序列组顶层项，取消时为 None。
+        """
+        from PyQt6.QtWidgets import QInputDialog
+        if name is None:
+            existing = [self._group_name(i) for i in range(self.sequenceList.topLevelItemCount())]
+            name, ok = QInputDialog.getText(self, '新建序列组', '请输入序列组名称:',
+                                            text=f'序列组 {self.sequenceList.topLevelItemCount() + 1}')
+            if not ok or not name.strip():
+                return None
+            name = name.strip()
+            if name in existing:
+                self.log_message(f'序列组名称已存在: {name}')
+                return None
+        group = QTreeWidgetItem([name])
+        group.setFlags(group.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        group.setCheckState(0, Qt.CheckState.Checked)
+        group.setExpanded(True)
+        self.sequenceList.addTopLevelItem(group)
+        self._apply_group_style(group)
+        self.log_message(f'已新建序列组: {name}')
+        return group
+
+    def _group_name(self, index):
+        """取顶层序列组的名称。
+
+        Args:
+            index: 顶层节点下标。
+
+        Returns:
+            str: 组名。
+        """
+        return self.sequenceList.topLevelItem(index).text(0)
+
+    def rename_sequence_group(self, group):
+        """重命名序列组。
+
+        Args:
+            group: 顶层序列组节点。
+        """
+        from PyQt6.QtWidgets import QInputDialog
+        name, ok = QInputDialog.getText(self, '重命名序列组', '请输入新的序列组名称:', text=group.text(0))
+        if ok and name.strip():
+            group.setText(0, name.strip())
+            self.log_message(f'已重命名序列组为: {name.strip()}')
+
+    def delete_sequence_group(self, group):
+        """删除序列组。
+
+        Args:
+            group: 顶层序列组节点。
+        """
+        name = group.text(0)
+        self.sequenceList.takeTopLevelItem(self.sequenceList.indexOfTopLevelItem(group))
+        self.log_message(f'已删除序列组: {name}')
+
+    def set_group_checked(self, group, checked):
+        """勾选或取消勾选序列组下的全部指令。
+
+        Args:
+            group: 顶层序列组节点。
+            checked: True 全部勾选，False 全部取消。
+        """
+        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        group.setCheckState(0, state)
+        self.log_message(f'{("勾选" if checked else "取消勾选")}序列组全部指令: {group.text(0)}')
+
+    def delete_sequence_item(self, item):
+        """删除序列组内的某个指令节点。
+
+        Args:
+            item: 组内指令节点。
+        """
+        parent = item.parent()
+        if parent is not None:
+            parent.removeChild(item)
+            self.log_message('已从序列中删除指令')
+        else:
+            self.delete_sequence_group(item)
+
+    def move_sequence_item(self, item, up=True):
+        """在序列组内上移/下移某个指令。
+
+        Args:
+            item: 组内指令节点。
+            up: True 上移，False 下移。
+        """
+        parent = item.parent()
+        if parent is None:
+            return
+        index = parent.indexOfChild(item)
+        if up:
+            if index <= 0:
+                return
+            target = index - 1
+        else:
+            if index >= parent.childCount() - 1:
+                return
+            target = index + 1
+        parent.takeChild(index)
+        parent.insertChild(target, item)
+        self.sequenceList.setCurrentItem(item)
+        self.log_message('已调整指令顺序')
+
     def modify_sequence_item(self, item):
-        """修改序列列表中的项。
+        """修改序列组内的某个指令。
 
         根据项的类型（命令、延迟、暂停）显示不同的编辑对话框。
 
         Args:
-            item: QListWidgetItem对象，代表要修改的序列项
+            item: 组内指令节点（QTreeWidgetItem）。
 
         Returns:
-            None: 无返回值，用户取消编辑时不做任何修改
+            None: 用户取消编辑时不修改。
         """
-        text = item.text()
-        row = self.sequenceList.row(item)
-        
+        text = item.text(0)
+
         if text.startswith('[CMD]'):
             current_command = text[5:].strip()
             from PyQt6.QtWidgets import QInputDialog
             new_command, ok = QInputDialog.getText(self, '修改指令', '请输入新的指令和参数:', text=current_command)
             if ok:
-                item.setText(f"[CMD] {new_command}")
+                item.setText(0, f"[CMD] {new_command}")
                 self.log_message(f"已修改序列中的指令: {new_command}")
         elif text.startswith('[DELAY]'):
             current_delay = text[7:].replace('ms', '').strip()
             from PyQt6.QtWidgets import QInputDialog
             new_delay, ok = QInputDialog.getInt(self, '修改延迟', '请输入新的延迟时间（毫秒）:', int(current_delay), 1, 30000)
             if ok:
-                item.setText(f"[DELAY] {new_delay}ms")
+                item.setText(0, f"[DELAY] {new_delay}ms")
                 self.log_message(f"已修改序列中的延迟: {new_delay}ms")
         elif text.startswith('[PAUSE]'):
             current_message = text[7:].strip()
             from PyQt6.QtWidgets import QInputDialog
             new_message, ok = QInputDialog.getText(self, '修改暂停', '请输入新的暂停提示信息:', text=current_message)
             if ok:
-                item.setText(f"[PAUSE] {new_message}")
+                item.setText(0, f"[PAUSE] {new_message}")
                 self.log_message(f"已修改序列中的暂停: {new_message}")
-    
-    def add_delay_to_sequence(self):
-        """添加延迟到序列列表。
 
-        弹出对话框让用户输入延迟时间（毫秒），范围1-30000ms。
+    def _add_child_to_group(self, group, text, checked=True):
+        """向指定序列组追加一个指令节点。
+
+        Args:
+            group: 顶层序列组节点。
+            text: 节点显示文本，如 [CMD] xxx。
+            checked: 是否默认勾选。
 
         Returns:
-            None: 无返回值，用户取消时不添加
+            QTreeWidgetItem: 新建的指令节点。
+        """
+        child = QTreeWidgetItem([text])
+        child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        child.setCheckState(0, Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
+        group.addChild(child)
+        group.setExpanded(True)
+        return child
+
+    def add_delay_to_sequence(self):
+        """添加延迟到当前序列组。
+
+        弹出对话框让用户输入延迟时间（毫秒），范围1-30000ms。
         """
         from PyQt6.QtWidgets import QInputDialog
         delay, ok = QInputDialog.getInt(self, '添加延迟', '请输入延迟时间（毫秒）:', 1000, 1, 30000)
         if ok:
-            item = QListWidgetItem(f"[DELAY] {delay}ms")
-            item.setCheckState(Qt.CheckState.Checked)
-            self.sequenceList.addItem(item)
+            group = self._ensure_default_group()
+            self._add_child_to_group(group, f"[DELAY] {delay}ms")
             self.log_message(f"已添加延迟到序列: {delay}ms")
-    
+
     def add_pause_to_sequence(self):
-        """添加暂停到序列列表。
+        """添加暂停到当前序列组。
 
         弹出对话框让用户输入暂停提示信息，执行到此时会等待用户确认。
-
-        Returns:
-            None: 无返回值，用户取消时不添加
         """
         from PyQt6.QtWidgets import QInputDialog
         message, ok = QInputDialog.getText(self, '添加暂停', '请输入暂停提示信息:', text='执行到此处，是否继续？')
         if ok:
-            item = QListWidgetItem(f"[PAUSE] {message}")
-            item.setCheckState(Qt.CheckState.Checked)
-            self.sequenceList.addItem(item)
+            group = self._ensure_default_group()
+            self._add_child_to_group(group, f"[PAUSE] {message}")
             self.log_message(f"已添加暂停到序列: {message}")
     
     def execute_sequence(self):
         """执行指令序列。
 
-        按顺序执行序列列表中所有已勾选的项，支持命令、延迟和暂停三种类型。
-        延迟使用QTimer实现非阻塞等待，暂停会弹出确认对话框。
+        依次遍历每个序列组中所有已勾选的指令（仅执行组已勾选的），
+        支持命令、延迟和暂停三种类型。延迟使用QTimer实现非阻塞等待，
+        暂停会弹出确认对话框。
 
         Warning:
             执行期间会阻塞UI线程，不建议在序列中添加过长的延迟
@@ -1066,186 +1450,294 @@ class MIXDebugPlugin(QMainWindow):
         if not self.rpc_clients:
             self.log_message('没有已连接的通道，请先连接通道')
             return
-        
-        if self.sequenceList.count() == 0:
+
+        total = 0
+        for gi in range(self.sequenceList.topLevelItemCount()):
+            group = self.sequenceList.topLevelItem(gi)
+            if group.checkState(0) == Qt.CheckState.Unchecked:
+                continue
+            total += group.childCount()
+
+        if total == 0:
             self.log_message('序列为空，请先添加指令或延迟')
             return
-        
-        self.log_message('开始执行指令序列...')
-        
-        for i in range(self.sequenceList.count()):
-            item = self.sequenceList.item(i)
-            if item.checkState() != Qt.CheckState.Checked:
-                continue
-            
-            text = item.text()
-            
-            if text.startswith('[CMD]'):
-                command = text[5:].strip()
-                self.log_message(f'[序列] 执行指令: {command}')
-                
-                parts = command.split(' ')
-                if len(parts) < 1:
-                    self.log_message('[序列] 命令格式错误')
-                    continue
-                
-                cmd = parts[0]
-                args = []
-                kwargs = {}
-                
-                for part in parts[1:]:
-                    if '=' in part:
-                        key, value = part.split('=', 1)
-                        kwargs[key] = value
-                    else:
-                        if part != "" and part != " " :
-                            args.append(part)
-                
-                if '.' in cmd:
-                    service_name, method_name = cmd.split('.', 1)
-                else:
-                    self.log_message('[序列] 命令格式错误，应为 service.method')
-                    continue
-                self.sequence = True
-                self.send_command_to_all_channels(service_name, method_name, command, *args, **kwargs)
-                self.sequence = False
-            elif text.startswith('[DELAY]'):
-                delay_str = text[7:].replace('ms', '').strip()
-                try:
-                    delay = int(delay_str)
-                    self.log_message(f'[序列] 执行延迟: {delay}ms')
-                    from PyQt6.QtCore import QTimer, QEventLoop
-                    timer = QTimer(self)
-                    timer.setSingleShot(True)
-                    timer.start(delay)
-                    loop = QEventLoop()
-                    timer.timeout.connect(loop.quit)
-                    loop.exec()
-                except ValueError:
-                    self.log_message(f'[序列] 延迟时间格式错误: {delay_str}')
-            elif text.startswith('[PAUSE]'):
-                pause_message = text[7:].strip()
-                self.log_message(f'[序列] 执行暂停: {pause_message}')
-                
-                from PyQt6.QtWidgets import QMessageBox
-                reply = QMessageBox.question(self, '序列暂停', 
-                                           pause_message, 
-                                           QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, 
-                                           QMessageBox.StandardButton.No)
-                
-                if reply == QMessageBox.StandardButton.No:
-                    self.log_message('[序列] 用户选择停止执行')
-                    return
-        
-        self.log_message('指令序列执行完成')
-    
-    def clear_sequence(self):
-        """清空序列列表。
 
-        移除序列列表中的所有项。
+        self.log_message('开始执行指令序列...')
+
+        try:
+            rpc_timeout = int(self.timeoutInput.text().strip())
+        except (ValueError, AttributeError):
+            rpc_timeout = 30
+
+        for gi in range(self.sequenceList.topLevelItemCount()):
+            group = self.sequenceList.topLevelItem(gi)
+            if group.checkState(0) == Qt.CheckState.Unchecked:
+                # 组被取消勾选，跳过整组
+                continue
+            for ci in range(group.childCount()):
+                item = group.child(ci)
+                if item.checkState(0) != Qt.CheckState.Checked:
+                    continue
+
+                text = item.text(0)
+
+                if text.startswith('[CMD]'):
+                    command = text[5:].strip()
+                    self.log_message(f'[序列] 执行指令: {command}')
+
+                    parts = _split_command_args(command)
+                    if len(parts) < 1:
+                        self.log_message('[序列] 命令格式错误')
+                        continue
+
+                    cmd = parts[0]
+                    args = []
+                    kwargs = {}
+
+                    for part in parts[1:]:
+                        if '=' in part:
+                            key, value = part.split('=', 1)
+                            kwargs[key] = _parse_arg(value)
+                        else:
+                            if part != "" and part != " ":
+                                args.append(_parse_arg(part))
+
+                    if '.' in cmd:
+                        service_name, method_name = cmd.split('.', 1)
+                    else:
+                        self.log_message('[序列] 命令格式错误，应为 service.method')
+                        continue
+                    self.sequence = True
+                    self.send_command_to_all_channels(service_name, method_name, command, rpc_timeout, *args, **kwargs)
+                    self.sequence = False
+                elif text.startswith('[DELAY]'):
+                    delay_str = text[7:].replace('ms', '').strip()
+                    try:
+                        delay = int(delay_str)
+                        self.log_message(f'[序列] 执行延迟: {delay}ms')
+                        from PyQt6.QtCore import QTimer, QEventLoop
+                        timer = QTimer(self)
+                        timer.setSingleShot(True)
+                        timer.start(delay)
+                        loop = QEventLoop()
+                        timer.timeout.connect(loop.quit)
+                        loop.exec()
+                    except ValueError:
+                        self.log_message(f'[序列] 延迟时间格式错误: {delay_str}')
+                elif text.startswith('[PAUSE]'):
+                    pause_message = text[7:].strip()
+                    self.log_message(f'[序列] 执行暂停: {pause_message}')
+
+                    from PyQt6.QtWidgets import QMessageBox
+                    reply = QMessageBox.question(self, '序列暂停', 
+                                               pause_message, 
+                                               QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, 
+                                               QMessageBox.StandardButton.No)
+
+                    if reply == QMessageBox.StandardButton.No:
+                        self.log_message('[序列] 用户选择停止执行')
+                        return
+
+        self.log_message('指令序列执行完成')
+
+    def clear_sequence(self):
+        """清空所有序列组。
+
+        移除序列树中的所有项，并重建默认序列组。
         """
         self.sequenceList.clear()
-        self.log_message('序列已清空')
+        self._ensure_default_group()
+        self.log_message('已清空所有序列组')
     
     def save_sequence_group(self):
-        """保存当前序列组到CSV文件。
+        """保存当前序列组（选中或默认组）到CSV文件。
 
-        将序列列表中的所有项（命令、延迟、暂停）保存到配置目录下的CSV文件。
+        将单个序列组中的所有项（命令、延迟、暂停）保存到配置目录下的CSV文件。
 
         Returns:
             None: 无返回值，序列为空或用户取消时不保存
         """
         from utils.config import config_manager
-        
-        if self.sequenceList.count() == 0:
-            self.log_message('序列为空，无法保存')
+        if self.sequenceList.topLevelItemCount() == 0:
+            self.log_message('没有可保存的序列组')
             return
-        
+
+        group = self._current_group()
+        self._save_one_group(group)
+
+    def save_all_sequence_groups(self):
+        """将所有序列组分别保存为CSV文件。
+
+        每个序列组对应一个文件，文件名为序列组名称。
+        """
+        if self.sequenceList.topLevelItemCount() == 0:
+            self.log_message('没有可保存的序列组')
+            return
+        for gi in range(self.sequenceList.topLevelItemCount()):
+            group = self.sequenceList.topLevelItem(gi)
+            self._save_one_group(group)
+        self.log_message('已保存所有序列组')
+
+    def _save_one_group(self, group):
+        """把单个序列组写到配置目录下的 CSV 文件（文件名为组名）。
+
+        Args:
+            group: 顶层序列组节点。
+        """
+        from utils.config import config_manager
+
+        if group.childCount() == 0:
+            self.log_message(f'序列组为空，无法保存: {group.text(0)}')
+            return
+
+        name = group.text(0)
+        # 组名中可能含路径分隔符等非法字符，做安全化处理，保证跨平台可用
+        safe_name = re.sub(r'[\\/:*?"<>|]', '_', name)
         config_dir = config_manager.get_config_dir()
-        
-        from PyQt6.QtWidgets import QInputDialog
-        filename, ok = QInputDialog.getText(self, '保存序列组', '请输入文件名（不含扩展名）:', text='sequence_group')
-        if not ok or not filename:
-            return
-        
-        if not filename.endswith('.csv'):
-            filename += '.csv'
-        
+        filename = safe_name if safe_name.endswith('.csv') else safe_name + '.csv'
         filepath = os.path.join(config_dir, filename)
-        
+
         try:
             with open(filepath, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow(['type', 'content', 'checked'])
-                for i in range(self.sequenceList.count()):
-                    item = self.sequenceList.item(i)
-                    text = item.text()
-                    checked = '1' if item.checkState() == Qt.CheckState.Checked else '0'
+                for ci in range(group.childCount()):
+                    item = group.child(ci)
+                    text = item.text(0)
+                    checked = '1' if item.checkState(0) == Qt.CheckState.Checked else '0'
                     if text.startswith('[CMD]'):
                         writer.writerow(['CMD', text[5:].strip(), checked])
                     elif text.startswith('[DELAY]'):
                         writer.writerow(['DELAY', text[7:].replace('ms', '').strip(), checked])
                     elif text.startswith('[PAUSE]'):
                         writer.writerow(['PAUSE', text[7:].strip(), checked])
-            
+
             self.log_message(f'序列组已保存到: {filepath}')
         except Exception as e:
             self.log_message(f'保存序列组失败: {str(e)}')
-    
+
+    def _build_group_from_file(self, filepath):
+        """从 CSV 文件构建一个序列组节点（不解入树）。
+
+        Args:
+            filepath: CSV 文件绝对路径。
+
+        Returns:
+            QTreeWidgetItem: 已填充子节点的序列组，读取失败返回 None。
+        """
+        group_name = os.path.splitext(os.path.basename(filepath))[0]
+        group = QTreeWidgetItem([group_name])
+        group.setFlags(group.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        group.setCheckState(0, Qt.CheckState.Checked)
+        group.setExpanded(False)  # 默认折叠
+
+        with open(filepath, 'r', newline='', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            next(reader)
+            for row in reader:
+                if len(row) >= 3:
+                    item_type, content, checked = row[0], row[1], row[2]
+                    if item_type == 'CMD':
+                        child = QTreeWidgetItem([f"[CMD] {content}"])
+                    elif item_type == 'DELAY':
+                        child = QTreeWidgetItem([f"[DELAY] {content}ms"])
+                    elif item_type == 'PAUSE':
+                        child = QTreeWidgetItem([f"[PAUSE] {content}"])
+                    else:
+                        continue
+
+                    child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                    child.setCheckState(0, Qt.CheckState.Checked if checked == '1' else Qt.CheckState.Unchecked)
+                    group.addChild(child)
+
+        return group
+
+    def _sequence_group_exists(self, group_name):
+        """判断序列树中是否已存在同名序列组。
+
+        Args:
+            group_name: 组名。
+
+        Returns:
+            bool: 存在返回 True。
+        """
+        for gi in range(self.sequenceList.topLevelItemCount()):
+            if self._group_name(gi) == group_name:
+                return True
+        return False
+
+    def _add_group_from_file(self, filepath):
+        """从 CSV 文件构建并加入序列树（同名则跳过）。
+
+        Args:
+            filepath: CSV 文件绝对路径。
+
+        Returns:
+            QTreeWidgetItem: 成功加入的序列组节点；未加入返回 None。
+        """
+        group_name = os.path.splitext(os.path.basename(filepath))[0]
+        if self._sequence_group_exists(group_name):
+            self.log_message(f'序列组已存在: {group_name}')
+            return None
+        try:
+            group = self._build_group_from_file(filepath)
+            self._apply_group_style(group)
+            self.sequenceList.addTopLevelItem(group)
+            self.sequenceList.setCurrentItem(group)
+            self.log_message(f'已加载序列组: {group_name}')
+            return group
+        except Exception as e:
+            self.log_message(f'加载序列组失败: {str(e)}')
+            return None
+
     def load_sequence_group(self):
         """加载已保存的序列组。
 
-        从配置目录中查找CSV文件，让用户选择后加载到序列列表中。
+        从配置目录中查找CSV文件，让用户选择后以新的序列组追加到序列树中，
+        不会替换已有序列。若组名已存在则跳过。
 
         Returns:
             None: 无返回值，未找到文件或用户取消时不加载
         """
         from utils.config import config_manager
-        
+
         config_dir = config_manager.get_config_dir()
-        
-        csv_files = glob.glob(os.path.join(config_dir, '*.csv'))
-        
+
+        csv_files = sorted(glob.glob(os.path.join(config_dir, '*.csv')))
+
         if not csv_files:
             self.log_message('没有找到保存的序列组')
             return
-        
+
         file_names = [os.path.splitext(os.path.basename(f))[0] for f in csv_files]
-        
+
         from PyQt6.QtWidgets import QInputDialog
         group_name, ok = QInputDialog.getItem(self, '加载序列组', '选择要加载的序列组:', file_names, 0, False)
         if not ok or not group_name:
             return
-        
+
         filepath = os.path.join(config_dir, group_name + '.csv')
         self.last_sequence_file = filepath
-        
-        try:
-            self.sequenceList.clear()
-            
-            with open(filepath, 'r', newline='', encoding='utf-8') as f:
-                reader = csv.reader(f)
-                next(reader)
-                for row in reader:
-                    if len(row) >= 3:
-                        item_type, content, checked = row[0], row[1], row[2]
-                        if item_type == 'CMD':
-                            item = QListWidgetItem(f"[CMD] {content}")
-                        elif item_type == 'DELAY':
-                            item = QListWidgetItem(f"[DELAY] {content}ms")
-                        elif item_type == 'PAUSE':
-                            item = QListWidgetItem(f"[PAUSE] {content}")
-                        else:
-                            continue
-                        
-                        if checked == '1':
-                            item.setCheckState(Qt.CheckState.Checked)
-                        else:
-                            item.setCheckState(Qt.CheckState.Unchecked)
-                        
-                        self.sequenceList.addItem(item)
-            
-            self.sequenceGroup.setTitle(f'当前指令序列 - {group_name} - 右键点击管理序列')
-            self.log_message(f'已加载序列组: {group_name}')
-        except Exception as e:
-            self.log_message(f'加载序列组失败: {str(e)}')
+        self._add_group_from_file(filepath)
+
+    def autoload_sequence_groups(self):
+        """平台启动时自动加载所有已保存的序列组。
+
+        扫描配置目录下的序列组 CSV 文件，把每个尚未加载的序列组以默认折叠的
+        方式加入序列树，方便用户启动后直接选择/执行。
+
+        Returns:
+            int: 本次自动加载的序列组数量。
+        """
+        from utils.config import config_manager
+
+        config_dir = config_manager.get_config_dir()
+        csv_files = sorted(glob.glob(os.path.join(config_dir, '*.csv')))
+
+        count = 0
+        for f in csv_files:
+            if self._add_group_from_file(f) is not None:
+                count += 1
+        if count > 0:
+            self.log_message(f'启动自动加载序列组: {count} 个')
+        return count

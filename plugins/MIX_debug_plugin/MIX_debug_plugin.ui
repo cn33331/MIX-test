@@ -543,10 +543,18 @@
             </widget>
            </item>
            <item>
-            <widget class="QListWidget" name="sequenceList">
-             <property name="styleSheet">
-              <string>QListWidget { font-size: 12px; border: 1px solid #d0d0d0; border-radius: 3px; } QListWidget::item { padding: 4px 6px; } QListWidget::item:selected { background: #e8f0fe; color: #0078d4; }</string>
+            <widget class="QTreeWidget" name="sequenceList">
+             <property name="headerHidden">
+              <bool>true</bool>
              </property>
+             <property name="styleSheet">
+              <string>QTreeWidget { font-size: 12px; border: 1px solid #d0d0d0; border-radius: 3px; } QTreeWidget::item { padding: 4px 6px; } QTreeWidget::item:selected { background: #e8f0fe; color: #0078d4; } QTreeWidget::item::has-children { font-weight: bold; }</string>
+             </property>
+             <column>
+              <property name="text">
+               <string notr="true">1</string>
+              </property>
+             </column>
             </widget>
            </item>
            <item>
