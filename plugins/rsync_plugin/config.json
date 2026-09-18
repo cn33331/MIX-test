@@ -5,27 +5,108 @@
     "port": 22
   },
   "scan": {
-    "range": "10.8.30.1-100"
+    "range": "172.28.27.90-220"
   },
   "paths": {
     "deploy_script_path": "/Users/gdlocal/Desktop/myCode/myAPP/MIX-test/plugins/rsync_plugin/scripts/B632环境部署脚步.json",
     "browser_local_path": "/Users/gdlocal/Desktop",
-    "browser_remote_path": "/",
-    "browser_target_ip": ""
+    "browser_remote_path": "~/Library/",
+    "browser_target_ip": "172.28.27.174"
   },
   "sync": {
     "push_delete": false,
     "pull_delete": false
   },
-  "devices": [],
+  "devices": [
+    {
+      "ip": "172.28.27.174",
+      "uname": "Warning: Permanently added '172.28.27.174' (ED25519) to the list of known hosts.\n\n\nDarwin INFY-G12-4FAP-01-13-FCT2 19.6.0 Darwin Kernel Version 19.6.0: Thu Jun 18 20:49:00 PDT 2020; root:xnu-6153.141.1~1/RELEASE_X86_64 x86_64"
+    },
+    {
+      "ip": "172.28.27.177",
+      "uname": "Warning: Permanently added '172.28.27.177' (ED25519) to the list of known hosts.\n\n\nDarwin INFY-G12-4FAP-01-18-FCT 19.6.0 Darwin Kernel Version 19.6.0: Thu Jun 18 20:49:00 PDT 2020; root:xnu-6153.141.1~1/RELEASE_X86_64 x86_64"
+    },
+    {
+      "ip": "172.28.27.193",
+      "uname": "Warning: Permanently added '172.28.27.193' (ED25519) to the list of known hosts.\n\n\nDarwin INFY-G12-4FAP-99-3-SMT-DEVELOPMENT4 24.4.0 Darwin Kernel Version 24.4.0: Wed Mar 19 21:18:03 PDT 2025; root:xnu-11417.101.15~1/RELEASE_ARM64_T8112 arm64"
+    },
+    {
+      "ip": "172.28.27.194",
+      "uname": "Warning: Permanently added '172.28.27.194' (ED25519) to the list of known hosts.\n\n\nDarwin Mac-mini-6.local 22.4.0 Darwin Kernel Version 22.4.0: Mon Mar  6 21:01:02 PST 2023; root:xnu-8796.101.5~3/RELEASE_ARM64_T8112 arm64"
+    },
+    {
+      "ip": "172.28.27.195",
+      "uname": "Warning: Permanently added '172.28.27.195' (ED25519) to the list of known hosts.\n\n\nDarwin INFY-G12-4FAP-99R-2-DFU 24.4.0 Darwin Kernel Version 24.4.0: Wed Mar 19 21:18:03 PDT 2025; root:xnu-11417.101.15~1/RELEASE_ARM64_T8112 arm64"
+    },
+    {
+      "ip": "172.28.27.196",
+      "uname": "Warning: Permanently added '172.28.27.196' (ED25519) to the list of known hosts.\n\n\nDarwin INFY-G12-4FAP-99L-3-DFU 24.4.0 Darwin Kernel Version 24.4.0: Wed Mar 19 21:18:03 PDT 2025; root:xnu-11417.101.15~1/RELEASE_ARM64_T8112 arm64"
+    },
+    {
+      "ip": "172.28.27.197",
+      "uname": "Warning: Permanently added '172.28.27.197' (ED25519) to the list of known hosts.\n\n\nDarwin INFY-G12-4FAP-99L-1-DFU 24.4.0 Darwin Kernel Version 24.4.0: Wed Mar 19 21:18:03 PDT 2025; root:xnu-11417.101.15~1/RELEASE_ARM64_T8112 arm64"
+    },
+    {
+      "ip": "172.28.27.198",
+      "uname": "Warning: Permanently added '172.28.27.198' (ED25519) to the list of known hosts.\n\n\nDarwin INFY-G12-4FAP-99L-2-DFU 24.4.0 Darwin Kernel Version 24.4.0: Wed Mar 19 21:18:03 PDT 2025; root:xnu-11417.101.15~1/RELEASE_ARM64_T8112 arm64"
+    },
+    {
+      "ip": "172.28.27.200",
+      "uname": "Warning: Permanently added '172.28.27.200' (ED25519) to the list of known hosts.\n\n\nDarwin INFY-G12-4FAP-99R-3-DFU 24.4.0 Darwin Kernel Version 24.4.0: Wed Mar 19 21:18:03 PDT 2025; root:xnu-11417.101.15~1/RELEASE_ARM64_T8112 arm64"
+    },
+    {
+      "ip": "172.28.27.202",
+      "uname": "Warning: Permanently added '172.28.27.202' (ED25519) to the list of known hosts.\n\n\nDarwin INFY-G12-4FAP-99-2-SMT-DEVELOPMENT4 24.4.0 Darwin Kernel Version 24.4.0: Wed Mar 19 21:18:03 PDT 2025; root:xnu-11417.101.15~1/RELEASE_ARM64_T8112 arm64"
+    },
+    {
+      "ip": "172.28.27.203",
+      "uname": "Warning: Permanently added '172.28.27.203' (ED25519) to the list of known hosts.\n\n\nDarwin INFY-G12-4FAP-99R-1-BT-COND 24.4.0 Darwin Kernel Version 24.4.0: Wed Mar 19 21:18:03 PDT 2025; root:xnu-11417.101.15~1/RELEASE_ARM64_T8112 arm64"
+    },
+    {
+      "ip": "172.28.27.204",
+      "uname": "Warning: Permanently added '172.28.27.204' (ED25519) to the list of known hosts.\n\n\nDarwin INFY-G12-4FAP-99L-1-SMT-DEVELOPMENT3 24.4.0 Darwin Kernel Version 24.4.0: Wed Mar 19 21:18:03 PDT 2025; root:xnu-11417.101.15~1/RELEASE_ARM64_T8112 arm64"
+    },
+    {
+      "ip": "172.28.27.206",
+      "uname": "Warning: Permanently added '172.28.27.206' (ED25519) to the list of known hosts.\n\n\nDarwin INFY-G12-4FAP-99R-2-SMT-DEVELOPMENT3 24.4.0 Darwin Kernel Version 24.4.0: Wed Mar 19 21:18:03 PDT 2025; root:xnu-11417.101.15~1/RELEASE_ARM64_T8112 arm64"
+    },
+    {
+      "ip": "172.28.27.207",
+      "uname": "Warning: Permanently added '172.28.27.207' (ED25519) to the list of known hosts.\n\n\nDarwin INFY-G12-4FAP-99L-3-SMT-DEVELOPMENT3 24.4.0 Darwin Kernel Version 24.4.0: Wed Mar 19 21:18:03 PDT 2025; root:xnu-11417.101.15~1/RELEASE_ARM64_T8112 arm64"
+    },
+    {
+      "ip": "172.28.27.208",
+      "uname": "Warning: Permanently added '172.28.27.208' (ED25519) to the list of known hosts.\n\n\nDarwin INFY-G12-4FAP-99L-4-SMT-DEVELOPMENT3 24.4.0 Darwin Kernel Version 24.4.0: Wed Mar 19 21:18:03 PDT 2025; root:xnu-11417.101.15~1/RELEASE_ARM64_T8112 arm64"
+    },
+    {
+      "ip": "172.28.27.210",
+      "uname": "Warning: Permanently added '172.28.27.210' (ED25519) to the list of known hosts.\n\n\nDarwin INFY-G12-4FAP-99L-1-SMT-DEVELOPMENT5 24.4.0 Darwin Kernel Version 24.4.0: Wed Mar 19 21:18:03 PDT 2025; root:xnu-11417.101.15~1/RELEASE_ARM64_T8112 arm64"
+    },
+    {
+      "ip": "172.28.27.211",
+      "uname": "Warning: Permanently added '172.28.27.211' (ED25519) to the list of known hosts.\n\n\nDarwin INFY-G12-4FAP-99R-1-SMT-DEVELOPMENT5 24.4.0 Darwin Kernel Version 24.4.0: Wed Mar 19 21:18:03 PDT 2025; root:xnu-11417.101.15~1/RELEASE_ARM64_T8112 arm64"
+    },
+    {
+      "ip": "172.28.27.213",
+      "uname": "Warning: Permanently added '172.28.27.213' (ED25519) to the list of known hosts.\n\n\nDarwin INFY-G12-4FAP-99L-3-FCT 24.4.0 Darwin Kernel Version 24.4.0: Wed Mar 19 21:18:03 PDT 2025; root:xnu-11417.101.15~1/RELEASE_ARM64_T8112 arm64"
+    },
+    {
+      "ip": "172.28.27.214",
+      "uname": "Warning: Permanently added '172.28.27.214' (ED25519) to the list of known hosts.\n\n\nDarwin INFY-G12-4FAP-99L-2-FCT 24.4.0 Darwin Kernel Version 24.4.0: Wed Mar 19 21:18:03 PDT 2025; root:xnu-11417.101.15~1/RELEASE_ARM64_T8112 arm64"
+    },
+    {
+      "ip": "172.28.27.216",
+      "uname": "Warning: Permanently added '172.28.27.216' (ED25519) to the list of known hosts.\n\n\nDarwin INFY-G12-4FAP-99R-2-FCT 24.4.0 Darwin Kernel Version 24.4.0: Wed Mar 19 21:18:03 PDT 2025; root:xnu-11417.101.15~1/RELEASE_ARM64_T8112 arm64"
+    }
+  ],
   "command_history": [
     "uname -a",
     "ls"
   ],
   "ui": {
     "log_expanded": false,
-    "last_mode": 1,
-    "device_filter": "FCT"
+    "last_mode": 0,
+    "device_filter": ""
   },
   "browser": {
     "delete_sync": false
