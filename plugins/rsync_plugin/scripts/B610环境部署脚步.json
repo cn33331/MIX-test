@@ -1,0 +1,25 @@
+{
+  "name": "B610环境部署脚步",
+  "ssh": {
+    "username": "gdlocal",
+    "password": "gdlocal",
+    "port": 22
+  },
+  "step1_targets": {
+    "mode": "scan",
+    "ip_range": "172.28.27.90-220",
+    "manual_ips": "10.8.30.16",
+    "hostname_filter": "DFU"
+  },
+  "step2_push": {
+    "local_path": "/Users/gdlocal/Desktop/shTool/B610Tool",
+    "remote_path": "/vault/B610Tool",
+    "delete": true
+  },
+  "step3_commands": [
+    "killall shTool",
+    "open /vault/B610Tool/shTool.app/Contents/Resources/Tool/auto",
+    "ln -s /vault/B610Tool ~/Desktop",
+    "open ~/Desktop/replace_tools.command"
+  ]
+}

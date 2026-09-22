@@ -15,6 +15,9 @@
 
 import os
 import re
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 
 # --------------------------------------------------------------------------
@@ -39,12 +42,21 @@ def parse_found_addresses(text):
     if isinstance(text, (list, tuple, set)):
         merged = []
         for t in text:
-            merged.extend(parse_found_addresses(t))
+            # 列表里可能是 str(['0x20']) 也可能是 int([32])：统一成字符串再解析，
+            # 否则 int 会走到 text.splitlines() 崩掉。
+            if isinstance(t, str):
+                merged.extend(parse_found_addresses(t))
+            elif isinstance(t, int):
+                merged.append('0x%02x' % t)
+            else:
+                merged.extend(parse_found_addresses(str(t)))
         return _norm(merged)
 
     found = []
     for raw_line in text.splitlines():
-        # 去掉表格行首“0xNN:”或“NN:”前缀
+        # 去掉 sudo -S 的密码提示标记（我们传了 -p MIXSUDO:），避免它被
+        # 当成地址内容；也顺手去掉行首表格前缀“0xNN:”或“NN:”。
+        raw_line = re.sub(r'MIXSUDO:\s*', '', raw_line)
         line = re.sub(r'^\s*(?:0x)?[0-9a-fA-F]{2}\s*:\s*', '', raw_line).rstrip()
         for tok in re.split(r'\s+', line):
             tok = tok.strip()
@@ -138,19 +150,15 @@ def make_rpc_runner(max_rpc_timeout=30, fake=None):
     def run(ctx, op):
         if not isinstance(ctx, dict):
             raise TypeError('ctx 需为 dict（传输缓存存于 ctx 内）')
-        key = (ctx.get('ip'), ctx.get('rpc_port') or ctx.get('port'))
-        client = ctx.get('_rpc_client')
-        if client is None or ctx.get('_rpc_key') != key:
-            if fake is not None:
+        if fake is not None:
+            key = (ctx.get('ip'), _resolve_port(ctx, op))
+            pool = ctx.setdefault('_fake_clients', {})
+            client = pool.get(key)
+            if client is None:
                 client = _FakeRpc(fake)
-            else:
-                _import_and_add_mix_path()
-                from mix8_rpc_client import JsonRpcClient
-                ip = ctx.get('ip')
-                port = int(ctx.get('rpc_port') or ctx.get('port') or 7801)
-                client = JsonRpcClient(ip, port)
-            ctx['_rpc_client'] = client
-            ctx['_rpc_key'] = key
+                pool[key] = client
+        else:
+            client = _ensure_client(ctx, op)
 
         service = op['service']
         method = op['method']
@@ -206,13 +214,70 @@ def make_ssh_runner(default_timeout=30):
         return mgr
 
     def run(ctx, op):
-        mgr = _manager(ctx)
+        t0 = time.time()
+        # 诊断日志：写入 ctx['_dbg'] 这个纯 Python 列表（线程安全，由调用方
+        # 在主线程 drain 到界面）。**不要**在这里直接碰 Qt —— 本函数运行在
+        # 工作线程，直接 appendPlainText 会让 Qt 文本排版跨线程访问而 SIGSEGV。
+        dbg = ctx.get('ssh_debug')
+        _buf = ctx.get('_dbg')
+
+        def _d(msg):
+            if dbg and isinstance(_buf, list):
+                _buf.append('    [ssh] ' + str(msg))
+        try:
+            mgr = _manager(ctx)
+        except Exception as e:
+            raise RuntimeError('创建 SSH 管理器失败(%s: %s)；'
+                               '请检查 SSH 账号/密码（项目里的 '
+                               'default_ssh_user / default_ssh_password）'
+                               % (type(e).__name__, e)) from e
         ip = ctx.get('ssh_ip') or ctx.get('ip')
         cmd = str(op['cmd'])
         timeout = int(op.get('timeout') or ctx.get('ssh_timeout') or default_timeout)
-        ok, out = mgr.execute_command(ip, cmd, timeout=timeout)
-        if not ok:
-            raise RuntimeError('ssh 执行失败: %s -> %s' % (cmd, out))
+        # sudo 需要密码时：SSH 是非交互的、没有 tty，`sudo -n` 会报
+        #   “sudo: a password is required”。
+        # 但 `sudo -S` 会从 **stdin** 读密码，所以把 SSH 密码用管道喂给它即可，
+        # 既不需要 tty，也不需要设备侧配 NOPASSWD。
+        # 注意：密码通过 shell 变量传入（不是写死在命令串里），日志里看不到明文。
+        use_sudo_pw = False
+        if 'sudo' in cmd:
+            use_sudo_pw = True
+            # 无 tty 时 sudo 无法自己提示密码：用 -S 从 stdin 读。
+            if 'sudo -S' not in cmd and 'sudo -n' not in cmd:
+                cmd = cmd.replace('sudo', 'sudo -S', 1)
+            # -p '' 会打提示符到 stderr，混进输出干扰地址解析；但空串引号在
+            # Tcl 的 "..." 里会破坏引号配对（extra characters after close-quote），
+            # 所以用 -p "" 之外的等价写法：-p 后跟一个空格分隔的空参数不行，
+            # 改为让 sudo 用 -p 指定一个不会出现的提示串。
+            if 'sudo -S' in cmd and '-p' not in cmd:
+                cmd = cmd.replace('sudo -S', 'sudo -S -p MIXSUDO:', 1)
+        _d('ip=%s user=%s port=%s timeout=%ss' % (
+            ip, ctx.get('ssh_username'), ctx.get('ssh_port') or 22, timeout))
+        _d('cmd=%s' % cmd)
+        try:
+            # SSHManager.execute_command 返回 (returncode, stdout, stderr) 三元组；
+            # returncode==0 才是成功（别用真值判断，0 是 falsy）。
+            res = mgr.execute_command(ip, cmd, timeout=timeout,
+                                      stdin_password=use_sudo_pw)
+        except Exception as e:
+            raise RuntimeError('SSH 执行异常(%s: %s) cmd=%s' %
+                               (type(e).__name__, e, cmd)) from e
+        dt = time.time() - t0
+        if isinstance(res, tuple) and len(res) >= 3:
+            rc, out, err = res[0], res[1], res[2]
+        elif isinstance(res, tuple) and len(res) == 2:
+            ok, out = res          # 兼容旧/替身实现 (ok, out)
+            rc, err = (0 if ok else 1), ''
+        else:
+            rc, out, err = 1, '', 'execute_command 返回格式无法识别: %r' % (res,)
+        _d('rc=%s 用时=%.2fs  stdout=%dB stderr=%dB' % (rc, dt, len(out or ''), len(err or '')))
+        if (out or '').strip():
+            _d('stdout 首行: %s' % (out.strip().splitlines()[0][:120],))
+        if rc not in (0, '0', None):
+            # 把 stderr 的每一行都带出来，否则用户只看到“失败”不知道为什么
+            detail = (err or out or '').strip().replace('\n', ' | ')
+            raise RuntimeError('ssh 执行失败(rc=%s, %.2fs) cmd=%s :: %s'
+                               % (rc, dt, cmd, detail[:300]))
         if op.get('driver') == 'ssh-scan':
             return parse_found_addresses(out)
         return out
@@ -220,59 +285,58 @@ def make_ssh_runner(default_timeout=30):
     return run
 
 
-def make_rpc_scan_runner(addr_min=0x03, addr_max=0x77, per_addr_timeout=1.5):
-    """构造“RPC 地址遍历扫描”执行器（软件 I2C 总线扫描）。
 
-    原理：对总线上的每个 7bit 地址调用远端 `read`（读 1 字节）。能拿到回包即认为
-    存在此设备；读失败即无 ACK（跳过）。可免 SSH 即可在下位机上出总线地址表。
+def _resolve_port(ctx, op=None):
+    """决定本次动作该连哪个 RPC 端口。
 
-    注意：直接走 stub() 会被 `to_float` 把标量 int 转成 float，导致 i2c 驱动层
-    read/write 报错。这里改用底层 `_send_request` 直发 raw int 参数，保真下发。
-
-    op 形如：
-        {'driver': 'rpc-scan', 'bus': 0}               # 扫 i2c_0 service
-        {'driver': 'rpc-scan', 'service': 'i2c_5', 'min': 0x08, 'max': 0x20}
-    返回已存在的地址列表（0x 小写，去重排序）。
+    一台设备 = 一个 IP，但对外可能有多个 RPC 端点（如 7801/7802，按工位/设备
+    区分）。端口因此按“动作/槽位”走；它只表示连哪个端点，
+    与选 i2c_mux_base 还是 i2c_mux_array（同一颗 FPGA 的两个服务）无关：
+        op['port'] > ctx['rpc_port'] > ctx['port'] > 7801
+    这样同一张表里可以有的行切 7801 的 mux、有的行切 7802 的。
     """
-
-    def run(ctx, op):
-        if not isinstance(ctx, dict):
-            raise TypeError('ctx 需为 dict')
-        service = op.get('service') or ('i2c_%d' % int(op.get('bus', 0)))
-        lo = op.get('min', addr_min)
-        hi = op.get('max', addr_max)
-        lo = int(lo) if lo is not None else addr_min
-        hi = int(hi) if hi is not None else addr_max
-        client = _ensure_client(ctx)  # 失败会抛 ConnectionError，日志直接看到
-        found = []
-        for a in range(lo, hi + 1):
-            try:
-                client._send_request(service, 'read', [a, 1], rpc_timeout=per_addr_timeout)
-                found.append(a)
-            except Exception:
-                pass
-        return ['0x%02x' % a for a in found]
-
-    return run
+    for src in (op or {}), ctx:
+        if not isinstance(src, dict):
+            continue
+        for k in ('port', 'rpc_port'):
+            v = src.get(k)
+            if v not in (None, ''):
+                try:
+                    return int(v)
+                except Exception:
+                    pass
+    return 7801
 
 
-def _ensure_client(ctx, _deadline=5):
-    """在 ctx dict 上获取/建立（并按 ip/port 缓存）一个 JsonRpcClient。
+def _ensure_client(ctx, op=None, _deadline=5):
+    """获取/建立（并按 ip:port 缓存）一个 JsonRpcClient。
 
     新建立连接时会做一次轻量可达性核验（client.ping = 裸 TCP 连接，不需 PTY）。
     ip:port 不可达直接抛 ConnectionError，并把错误信息带到上层日志，避免下游把
     “网络不通”误判成“总线上没设备”。
+
+    连接按 (ip, port) 缓存在 ctx['_rpc_clients'] 里：因为一次扫描可能先后用到
+    多个端点的连接，不能只留一个 client，否则每换一个端点都要重连。
     """
     if not isinstance(ctx, dict):
         raise TypeError('ctx 需为 dict')
-    key = (ctx.get('ip'), ctx.get('rpc_port') or ctx.get('port'))
     ip = ctx.get('ip')
-    client = ctx.get('_rpc_client')
-    fresh = (client is None or ctx.get('_rpc_key') != key)
-    if fresh:
+    port = _resolve_port(ctx, op)
+    key = (ip, port)
+
+    pool = ctx.get('_rpc_clients')
+    if not isinstance(pool, dict):
+        pool = {}
+        ctx['_rpc_clients'] = pool
+    # 兼容旧字段：早期版本只缓存单个 client，这里收编进池子
+    old_c, old_k = ctx.get('_rpc_client'), ctx.get('_rpc_key')
+    if old_c is not None and old_k is not None and old_k not in pool:
+        pool[old_k] = old_c
+
+    client = pool.get(key)
+    if client is None:
         _import_and_add_mix_path()
         from mix8_rpc_client import JsonRpcClient
-        port = int(ctx.get('rpc_port') or ctx.get('port') or 7801)
         client = JsonRpcClient(ip, port)
         # 轻量可达：ping = TCP connect。不通立刻给出明确诊断。
         try:
@@ -293,6 +357,8 @@ def _ensure_client(ctx, _deadline=5):
                     client.connect()
             except Exception:
                 pass
+        pool[key] = client
+        # 保留旧字段语义（=最近一次用到的 client），不破坏既有读取方
         ctx['_rpc_client'] = client
         ctx['_rpc_key'] = key
     return client
@@ -305,11 +371,12 @@ def make_rpc_call_runner():
     下发到驱动层的场景。op:
         {'driver':'rpc-call','service':'i2c_mux_base',
          'method':'set_channel_state_doe','args':[1]}
+    可选 op['port']：本动作要连哪个 RPC 端点；给了就用它，否则用 ctx 的端口。
     末尾以 delay 拆分回 main：由调用方决定（此处仅返回结果）。
     """
 
     def run(ctx, op):
-        client = _ensure_client(ctx)
+        client = _ensure_client(ctx, op)
         service = op['service']
         method = op['method']
         args = list(op.get('args') or [])
@@ -326,11 +393,14 @@ def make_rpc_call_runner():
 
 
 def default_registry(fake=None):
-    """构造含 rpc / rpc-call / rpc-scan / ssh / ssh-scan 的默认注册表。"""
+    """构造含 rpc / rpc-call / ssh / ssh-scan 的默认注册表。
+
+    扫描只有一种方式：ssh-scan（板端 detect_i2c）。原来的 rpc-scan
+    （上位机逐个地址 read）已删除。
+    """
     reg = TransportRegistry()
     reg.register('rpc', make_rpc_runner(fake=fake))
     reg.register('rpc-call', make_rpc_call_runner())
-    reg.register('rpc-scan', make_rpc_scan_runner())
     reg.register('ssh', make_ssh_runner())
     reg.register('ssh-scan', make_ssh_runner())
     return reg

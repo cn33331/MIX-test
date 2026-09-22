@@ -557,12 +557,59 @@ class SSHManager:
         """
         # 转义 command 中的双引号和反斜杠，防止破坏 Tcl 字符串
         escaped_cmd = command.replace('\\', '\\\\').replace('"', '\\"')
-        # expect 超时时间要比 ssh 超时略长，确保 ssh 先超时
-        expect_timeout = max(timeout + 5, 15)
+        # expect 自身的超时；给一点余量让 ssh 先超时，但不要用固定下限把它抬高
+        # （否则 timeout=3 也会变成 15s，批量扫描时每行白等 12s）。
+        expect_timeout = max(timeout + 2, 3)
+        # 连接复用（ControlMaster）：同 ip:port 的多次 execute_command 复用同一条
+        # 已认证的 ssh 连接，省掉每次的 TCP+握手+认证。批量扫描（几十条总线各一条
+        # 命令）时这能把每条从“上百 ms”降到“几 ms”。
+        # ControlPersist=30 让主连接在空闲 30s 内保留，正好覆盖一轮扫描；
+        # 结束后自动清理，不留后台进程。
+        mux_path = f'/tmp/mix_ssh_exec_{self.username}_{ip}_{self.port}.sock'
+        # 远端若用 `sudo -S`，密码由 stdin 提供。这里用 expect 的 send 在会话建立后
+        # 直接把密码送进 stdin，供 `echo ... | sudo -S ...` 消费：
+        # 先 send 密码（不带换行，由远端 echo 消费掉），再发命令。
+        # 密码取自 RSYNC_PWD 环境变量，不出现在命令行（ps 看不到）。
+        # sudo -S 从 stdin 读密码；ssh 的 stdin 已被 expect 占用，不能复用。
+        # 由远端 shell 自己把密码喂给 sudo：
+        #     printf '%s\n' <pw> | sudo -S -p MIXSUDO: <cmd>
+        # 关键：**必须带换行**！`sudo -S` 读的是“一行”，只给 printf %s（无 \n）
+        # 时 sudo 会一直等换行，最后超时并只打印提示符（表现为 stderr=MIXSUDO:）。
+        # 注意：这条命令最终会被放进 Tcl 的双引号串里（"cmd"），所以
+        # **命令内部不能再出现双引号**。这里用 printf '%s\n' + 单引号包住格式串，
+        # 密码则逐字符反斜杠转义（不加引号）。
+        if 'sudo' in escaped_cmd and getattr(self, '_stdin_password', False):
+            pw = (self.password or '')
+            # 逐字符反斜杠转义（不加引号），并且**排除双引号**：
+            # 整条命令会嵌进 Tcl 的 "..." 里，密码里若出现 " 会提前闭合引号。
+            # 双引号改用 \x22（printf 的 \x 转义不依赖 shell 引号），
+            # 这样既安全又能保持原字符。
+            out = []
+            for ch in pw:
+                if ch == '"':
+                    out.append('\\x22')
+                elif ch in ' \\$`\\!&|;<>()*?[]{}~#\'':
+                    out.append('\\' + ch)
+                else:
+                    out.append(ch)
+            safe_pw = ''.join(out)
+            if safe_pw == '':
+                safe_pw = "''"      # 空密码时给一对单引号，保证参数存在
+            # 注意：printf 的第一个参数带 \n，\"%s\\n\" 在 Python 里生成 '%s\n'
+            escaped_cmd = "printf '%s\\n' " + safe_pw + " | " + escaped_cmd
         script = (
             f'set timeout {expect_timeout}\n'
-            f'spawn ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null '
-            f'-o ConnectTimeout=5 -p {self.port} {self.username}@{ip} "{escaped_cmd}"\n'
+            # spawn 本身也可能失败（如无 pty、ssh 不存在）。必须 catch，
+            # 否则 expect 直接退出且返回码为 0 —— “根本没跑起来”会被上层
+            # 当成“扫描成功但总线是空的”，非常难查。统一报 125。
+            f'if {{[catch {{spawn ssh -o StrictHostKeyChecking=no '
+            f'-o UserKnownHostsFile=/dev/null '
+            f'-o ConnectTimeout=5 -o ControlMaster=auto '
+            f'-o ControlPath={mux_path} -o ControlPersist=30 '
+            f'-p {self.port} {self.username}@{ip} "{escaped_cmd}"}} _spawn_err]}} {{\n'
+            f'    puts stderr "SPAWN_FAILED: $_spawn_err"\n'
+            f'    exit 125\n'
+            f'}}\n'
             f'expect {{\n'
             f'    -re {{(?i)(password|passwd):}} {{ send "$env(RSYNC_PWD)\\r"; exp_continue }}\n'
             f'    "yes/no" {{ send "yes\\r"; exp_continue }}\n'
@@ -570,7 +617,9 @@ class SSHManager:
             f'    eof\n'
             f'}}\n'
             f'catch wait result\n'
-            f'exit [lindex $result 3]\n'
+            f'set _rc [lindex $result 3]\n'
+            f'if {{$_rc eq ""}} {{ exit 125 }}\n'
+            f'exit $_rc\n'
         )
         return ['expect', '-c', script]
 
@@ -601,7 +650,7 @@ class SSHManager:
             filtered.append(line)
         return '\n'.join(filtered).strip()
 
-    def execute_command(self, ip, command, timeout=10):
+    def execute_command(self, ip, command, timeout=10, stdin_password=False):
         """在远程主机上执行命令。
 
         使用 expect 包装 ssh，密码通过 RSYNC_PWD 环境变量传递。
@@ -610,6 +659,8 @@ class SSHManager:
             ip: 目标IP地址
             command: 要执行的命令字符串
             timeout: 超时时间(秒)
+            stdin_password: True 且命令含 sudo 时，把密码用管道喂给
+                `sudo -S`（ssh 无 tty，sudo 无法自行提示密码）。
 
         Returns:
             tuple: (return_code, stdout, stderr)
@@ -617,6 +668,7 @@ class SSHManager:
         if not check_expect():
             return -1, '', 'expect未安装，请确认系统已安装 expect'
 
+        self._stdin_password = bool(stdin_password)
         cmd = self._build_ssh_cmd(ip, command, timeout)
         env = self._get_env()
 

@@ -169,16 +169,20 @@ def run_slot_workflow(reg, ctx, hook, slot, log=None):
     execute_ops(reg, ctx, mux_ops, log=_log)
 
     # --- 2) 稳定延时 ---
-    settle = getattr(hook, 'settle_ms', None)
-    if callable(settle):
-        try:
-            ms = int(settle() or 0)
-        except Exception:
+    # 注意：mux_ops() 已经在本行末尾带过 delay(settle_ms)（见 make_table_hook），
+    # 所以“有 mux 的行”这里不能再补睡一次，否则每行白等两个 settle。
+    # 只有“不切 mux 的行”才需要在这补一次延时（切 mux 后要等器件稳定）。
+    if not [o for o in (mux_ops or []) if o.get('driver') != 'delay']:
+        settle = getattr(hook, 'settle_ms', None)
+        if callable(settle):
+            try:
+                ms = int(settle() or 0)
+            except Exception:
+                ms = 0
+        else:
             ms = 0
-    else:
-        ms = 0
-    if ms:
-        time.sleep(ms / 1000.0)
+        if ms:
+            time.sleep(ms / 1000.0)
 
     # --- 3) 探测地址 ---
     probe = hook.probe(slot)
@@ -195,19 +199,23 @@ def run_slot_workflow(reg, ctx, hook, slot, log=None):
 
 
 def _uses_rpc(hook, slot):
-    """判断该 slot 的动作是否走 RPC（用于选 ping 的端口）。"""
+    """判断该 slot 的动作是否走 RPC（用于选 ping 的端口）。
+
+    有 mux 动作 = 一定走 RPC（切 mux 是 RPC 调用）；
+    没有 mux 时看 probe：ssh-scan → 探 SSH(22)，其余按 RPC。
+    """
     try:
         for op in (hook.mux_ops(slot) or []):
-            if op.get('driver') in ('rpc', 'rpc-call', 'rpc-scan'):
+            if op.get('driver') in ('rpc', 'rpc-call'):
                 return True
     except Exception:
         return True  # 探测失败保守按 RPC 判
     try:
         p = hook.probe(slot) or {}
-        if p.get('kind', 'rpc-scan').startswith('rpc') or p.get('kind') == 'rpc':
-            return True
         if p.get('kind') in ('ssh', 'ssh-scan'):
             return False
+        if p.get('kind') == 'rpc':
+            return True
     except Exception:
         pass
     return True
@@ -269,30 +277,34 @@ def _exec_probe(reg, ctx, probe, log=None):
             log('  无探测动作 (probe 为空)')
         return []
     kind = probe.get('kind', 'ssh-scan')
+
+    def _op(driver, **kw):
+        """构造动作时带上 probe 的 port —— 端口是“设备的哪个 RPC 端点”，
+        丢了 port 就可能拿默认端口去连另一台设备/工位。"""
+        op = {'driver': driver}
+        op.update(kw)
+        p = probe.get('port')
+        if p is not None:
+            op['port'] = int(p)
+        return op
+
     if kind in ('ssh-scan', 'ssh'):
         cmd = probe['cmd']
         if log:
             log('  探测 ssh: %s' % cmd)
-        res = reg.run(ctx, {'driver': 'ssh-scan', 'cmd': cmd})
+        # 只有一种扫法：板端 detect_i2c。失败就直接报错，不做 RPC 回退，
+        # 免得“悄悄换成慢路径”掩盖真实问题（缺权限/路径不对等）。
+        res = reg.run(ctx, _op('ssh-scan', cmd=cmd))
         return transports.parse_found_addresses(res)
     if kind == 'rpc':
         if log:
             log('  探测 rpc: %s.%s' % (probe.get('service'), probe.get('method')))
-        res = reg.run(ctx, {'driver': 'rpc',
-                            'service': probe['service'],
-                            'method': probe['method'],
-                            'args': probe.get('args') or []})
+        res = reg.run(ctx, _op('rpc',
+                               service=probe['service'],
+                               method=probe['method'],
+                               args=probe.get('args') or []))
         return transports.parse_found_addresses(res) if not isinstance(res, list) \
             else transports._norm([_hexstr(x) for x in res])
-    if kind == 'rpc-scan':
-        # 软件地址遍历扫描：RPC read 全地址段，免 SSH
-        bus = probe.get('bus')
-        service = probe.get('service') or ('i2c_%d' % int(bus))
-        if log:
-            log('  探测 rpc-scan: %s' % service)
-        res = reg.run(ctx, {'driver': 'rpc-scan', 'service': service,
-                            'min': probe.get('min'), 'max': probe.get('max')})
-        return res or []
     if kind == 'none':
         if log:
             log('  仅切 mux，不做自动扫描')
@@ -358,8 +370,13 @@ def make_table_hook(project, slots, settle_ms=_DEFAULT_SETTLE_MS, mux_proto=None
         raise TypeError('表项 mux=%r 需要 MUX_PROTO 才能切。' % (mux,))
 
     def _expand_scan(scan):
+        # 只支持显式 probe dict（板端 ssh-scan）。留字符串入口会生成已删除的
+        # rpc-scan 驱动，属于静默失效，这里直接报错更清楚。
         if isinstance(scan, str):
-            return {'kind': 'rpc-scan', 'service': scan}
+            raise TypeError(
+                'scan=%r 需要写成 probe dict，例如 '
+                "{'kind':'ssh-scan','cmd':'/mix/addon/detect_i2c -y 8'}"
+                '（已不再支持 rpc 逐个地址扫）' % (scan,))
         return dict(scan)
 
     _s = {}
@@ -373,11 +390,25 @@ def make_table_hook(project, slots, settle_ms=_DEFAULT_SETTLE_MS, mux_proto=None
                 return r
         return None
 
+    def _apply_port(op, row):
+        """把该行声明的 port 落到动作上（op 自带 port 时以 op 为准）。
+
+        一台设备 = 一个 IP，但对外可能有多个 RPC 端点（7801/7802，按工位/设备
+        区分，见系统配置表）。所以该行用哪个端点必须传到 mux 动作与扫描动作上。
+        注意：i2c_mux_base 与 i2c_mux_array 是同一颗 FPGA 里的两个服务，
+        靠“服务名”区分，与端口无关。
+        """
+        p = (row or {}).get('port')
+        if p is None or 'port' in op:
+            return op
+        op['port'] = int(p)
+        return op
+
     def mux_ops(key):
         r = _get(key)
         if r is None:
             raise KeyError('表驱动项目无此目标: %s' % key)
-        ops = _expand_mux(r.get('mux'))
+        ops = [_apply_port(dict(o), r) for o in _expand_mux(r.get('mux'))]
         if not ops:
             return []
         # 每条切动作后带一个稳定延时
@@ -392,7 +423,7 @@ def make_table_hook(project, slots, settle_ms=_DEFAULT_SETTLE_MS, mux_proto=None
         r = _get(key)
         if r is None:
             raise KeyError('表驱动项目无此目标: %s' % key)
-        return _expand_scan(r.get('scan', ''))
+        return _apply_port(_expand_scan(r.get('scan', '')), r)
 
     def _keys():
         keys = []
@@ -438,8 +469,6 @@ def make_table_hook(project, slots, settle_ms=_DEFAULT_SETTLE_MS, mux_proto=None
             if r is None:
                 return key
             sc = _expand_scan(r.get('scan', ''))
-            if isinstance(sc, dict) and sc.get('kind') == 'rpc-scan':
-                return 'RPC 扫 %s' % sc.get('service', '')
             if isinstance(sc, dict) and sc.get('kind') in ('ssh-scan', 'ssh'):
                 return sc.get('cmd', '')
             return str(r.get('scan', key))
