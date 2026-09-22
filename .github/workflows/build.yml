@@ -1,166 +1,299 @@
 name: Build Automation-Platform
 
+# 触发方式
+#   1) 手动：Actions → Build Automation-Platform → Run workflow
+#   2) 自动：推送 v* 标签（构建 universal 包并创建 Release）
 on:
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: '构建完成后创建 / 更新 GitHub Release（手动运行时标签用 build-<run_number>）'
+        type: boolean
+        default: false
+  push:
+    tags:
+      - 'v*'
+
+# 同一个 ref 只保留最新一次运行，新提交自动取消旧运行
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# 默认最小权限，只有 release 作业单独申请 contents: write
+permissions:
+  contents: read
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  APP_NAME: Automation-Platform
+  PYTHON_VERSION: '3.10'
 
 jobs:
-  build-arm64:
-    runs-on: macos-14
-    timeout-minutes: 60
+  # ============================================================== 分架构构建
+  build:
+    name: Build ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # arm64：Apple Silicon 镜像。
+          # macos-14 已于 2026-07-06 进入弃用期（2026-11-02 停止支持），这里固定 macos-15。
+          - arch: arm64
+            runner: macos-15
+            native_arch: arm64
+          # x86_64：macos-13 已于 2025-12-04 彻底退役，Intel 的接替镜像是 macos-15-intel
+          # （GitHub 官方文档中 Intel 标准镜像为 macos-15-intel / macos-26-intel，生命周期到 2027-08）。
+          - arch: x86_64
+            runner: macos-15-intel
+            native_arch: x86_64
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: 检出代码
+        uses: actions/checkout@v7
 
-      - name: Verify runner architecture
-        run: |
-          echo "=== Runner Info ==="
-          uname -m
-          arch
-          file /usr/bin/python3
-
-      - name: Set up Python (ARM64)
-        uses: actions/setup-python@v5
+      - name: 安装 Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v7
         with:
-          python-version: '3.10'
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
 
-      - name: Verify Python architecture
+      - name: 校验 runner 与 Python 架构
         run: |
-          echo "=== Python Info ==="
-          python --version
-          python -c "import platform; print(f'Platform: {platform.platform()}')"
-          python -c "import platform; print(f'Architecture: {platform.machine()}')"
-          file $(which python)
-
-      - name: Install dependencies (ARM64)
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
-
-      - name: Build ARM64 application
-        run: |
-          pyinstaller Automation-Platform.spec
-
-      - name: Verify ARM64 build
-        run: |
-          echo "=== ARM64 Build Verification ==="
-          ls -la dist/
-          echo "=== Binary architecture ==="
-          file dist/Automation-Platform.app/Contents/MacOS/Automation-Platform
-          ARCH=$(file dist/Automation-Platform.app/Contents/MacOS/Automation-Platform | grep -o "arm64")
-          if [ -z "$ARCH" ]; then
-            echo "ERROR: Built binary is not ARM64 architecture!"
+          set -euo pipefail
+          echo "runner : $(uname -m) / macOS $(sw_vers -productVersion)"
+          python_arch="$(python -c 'import platform; print(platform.machine())')"
+          echo "python : $(python --version) / $python_arch"
+          if [ "$python_arch" != "${{ matrix.native_arch }}" ]; then
+            echo "::error::期望 ${{ matrix.native_arch }} 架构的 Python，实际为 $python_arch"
             exit 1
           fi
-          echo "SUCCESS: Built binary is ARM64 architecture"
 
-      - name: Upload ARM64 artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Automation-Platform-arm64
-          path: dist/Automation-Platform.app
-          retention-days: 7
-
-  build-x86_64:
-    runs-on: macos-13
-    timeout-minutes: 120
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Verify runner architecture
+      - name: 安装依赖
         run: |
-          echo "=== Runner Info ==="
-          uname -m
-          arch
-          file /usr/bin/python3
-
-      - name: Set up Python (x86_64)
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install dependencies (x86_64)
-        run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
+          python -m pip install -r requirements.txt
+          python -m pip install pyinstaller
 
-      - name: Build x86_64 application
+      - name: 依赖自检
         run: |
-          pyinstaller Automation-Platform.spec
+          set -euo pipefail
+          python - <<'PY'
+          import platform
+          import sys
 
-      - name: Verify x86_64 build
+          import PyQt6.QtCore
+          import serial
+          import ujson
+          import zmq
+
+          print('python :', sys.version.split()[0], platform.machine())
+          print('PyQt6  :', PyQt6.QtCore.PYQT_VERSION_STR, 'Qt', PyQt6.QtCore.QT_VERSION_STR)
+          print('serial :', serial.__version__)
+          print('zmq    :', zmq.__version__)
+          print('ujson  :', ujson.__version__)
+          PY
+
+      - name: 预检被 .gitignore 排除的运行时资源
         run: |
-          echo "=== x86_64 Build Verification ==="
-          file dist/Automation-Platform.app/Contents/MacOS/Automation-Platform
-          ARCH=$(file dist/Automation-Platform.app/Contents/MacOS/Automation-Platform | grep -o "x86_64")
-          if [ -z "$ARCH" ]; then
-            echo "ERROR: Built binary is not x86_64 architecture!"
+          # 这些路径在 .gitignore 里，CI 检出后不存在，但打包时会被一起复制进 app。
+          # 缺失不阻断构建，只给明确告警，避免"CI 产物静默缺功能"。
+          set -uo pipefail
+          missing=0
+          for p in plugins/libs/pty.py \
+                   plugins/MIX_debug_plugin/mix/mix8_rpc_client.py; do
+            if [ -e "$p" ]; then
+              echo "OK       : $p"
+            else
+              echo "::warning::缺少 $p（被 .gitignore 排除，CI 产物可能缺少该功能，见仓库根 .gitignore）"
+              missing=$((missing + 1))
+            fi
+          done
+          echo "缺失项: $missing"
+
+      - name: 编译原生 C 组件 fft_processor
+        run: |
+          set -euo pipefail
+          cc -O2 -o plugins/Waveform_plugin/fft_processor C/fft_processor.c -lm
+          echo "架构: $(lipo -archs plugins/Waveform_plugin/fft_processor)"
+          # 冒烟测试：无参数时应打印用法，且不能是 "Bad CPU type" 之类的架构错误
+          out="$(./plugins/Waveform_plugin/fft_processor 2>&1 || true)"
+          echo "$out"
+          echo "$out" | grep -q "查询单频率" || {
+            echo "::error::fft_processor 无法在本架构运行"; exit 1; }
+
+      - name: PyInstaller 打包
+        run: |
+          set -euo pipefail
+          pyinstaller --version
+          pyinstaller --clean --noconfirm Automation-Platform.spec
+
+      - name: 校验 app 包完整性
+        run: |
+          set -euo pipefail
+          APP="dist/${APP_NAME}.app"
+          BIN="$APP/Contents/MacOS/${APP_NAME}"
+          test -f "$BIN" || { echo "::error::缺少主程序 $BIN"; exit 1; }
+          archs="$(lipo -archs "$BIN")"
+          echo "主程序架构: $archs"
+          if [ "$archs" != "${{ matrix.native_arch }}" ]; then
+            echo "::error::主程序架构不是 ${{ matrix.native_arch }}：$archs"
             exit 1
           fi
-          echo "SUCCESS: Built binary is x86_64 architecture"
+          # spec 的 post_build_copy_plugins 必须把 plugins 复制到 Contents/MacOS/
+          test -d "$APP/Contents/MacOS/plugins" || {
+            echo "::error::plugins 目录没有被复制进 app（检查 Automation-Platform.spec 的 post_build_copy_plugins）"
+            exit 1; }
+          # 随包分发的 C 组件必须保留可执行位
+          test -x "$APP/Contents/MacOS/plugins/Waveform_plugin/fft_processor" || {
+            echo "::error::app 内 fft_processor 不可执行"; exit 1; }
+          echo "--- app 内 plugins ---"
+          ls -la "$APP/Contents/MacOS/plugins"
+          du -sh "$APP"
 
-      - name: Upload x86_64 artifact
-        uses: actions/upload-artifact@v4
+      - name: 压缩（ditto 打包，保住可执行位）
+        run: |
+          # 不要用 upload-artifact 直接传 .app 目录：官方文档 "Permission Loss" 明确说明
+          # 制品上传/下载后权限不保留（目录 755、文件 644），app 内的可执行文件会失去 +x。
+          # 先用 ditto 打成 zip、下载后再 ditto -x 解开，即可保住权限。
+          set -euo pipefail
+          Z="dist/${APP_NAME}-${{ matrix.arch }}.zip"
+          ditto -c -k --sequesterRsrc --keepParent "dist/${APP_NAME}.app" "$Z"
+          shasum -a 256 "$Z" | tee "$Z.sha256"
+          ls -lh "$Z"
+
+      - name: 上传 ${{ matrix.arch }} 产物
+        uses: actions/upload-artifact@v7
         with:
-          name: Automation-Platform-x86_64
-          path: dist/Automation-Platform.app
-          retention-days: 7
+          name: app-${{ matrix.arch }}
+          path: |
+            dist/${{ env.APP_NAME }}-${{ matrix.arch }}.zip
+            dist/${{ env.APP_NAME }}-${{ matrix.arch }}.zip.sha256
+          retention-days: 14
+          compression-level: 0
 
-  create-universal:
-    needs: [build-arm64, build-x86_64]
-    runs-on: macos-14
-    timeout-minutes: 30
+  # ========================================================= 合成 universal2
+  universal:
+    name: Create universal2 app
+    needs: build
+    runs-on: macos-15
+    timeout-minutes: 40
     steps:
-      - name: Download x86_64 artifact
-        uses: actions/download-artifact@v4
+      - name: 检出代码（重新编译 C 组件为 universal2 需要源码）
+        uses: actions/checkout@v7
+
+      - name: 下载 arm64 产物
+        uses: actions/download-artifact@v8
         with:
-          name: Automation-Platform-x86_64
-          path: ./x86_64
+          name: app-arm64
+          path: artifacts/arm64
 
-      - name: Download ARM64 artifact
-        uses: actions/download-artifact@v4
+      - name: 下载 x86_64 产物
+        uses: actions/download-artifact@v8
         with:
-          name: Automation-Platform-arm64
-          path: ./arm64
+          name: app-x86_64
+          path: artifacts/x86_64
 
-      - name: Verify downloaded artifacts
+      - name: 解压并校验两个单架构产物
         run: |
-          echo "=== x86_64 artifact ==="
-          file ./x86_64/Contents/MacOS/Automation-Platform
-          echo "=== arm64 artifact ==="
-          file ./arm64/Contents/MacOS/Automation-Platform
+          set -euo pipefail
+          for a in arm64 x86_64; do
+            ditto -x -k "artifacts/$a/${APP_NAME}-$a.zip" "artifacts/$a/"
+            BIN="artifacts/$a/${APP_NAME}.app/Contents/MacOS/${APP_NAME}"
+            test -f "$BIN" || { echo "::error::$BIN 不存在"; exit 1; }
+            archs="$(lipo -archs "$BIN")"
+            echo "$a 主程序架构: $archs"
+            [ "$archs" = "$a" ] || { echo "::error::$a 产物架构异常：$archs"; exit 1; }
+            test -x "${BIN%/*}/plugins/Waveform_plugin/fft_processor" || {
+              echo "::error::解压后 fft_processor 丢失可执行位（产物应通过 ditto 打包）"; exit 1; }
+          done
 
-      - name: Create universal app
+      - name: 合成 universal2 app
         run: |
-          mkdir -p ./universal/Automation-Platform.app/Contents/{MacOS,Resources,Frameworks,_CodeSignature}
-          
-          cp ./arm64/Contents/Info.plist ./universal/Automation-Platform.app/Contents/
-          cp -r ./arm64/Contents/Resources/* ./universal/Automation-Platform.app/Contents/Resources/ 2>/dev/null || true
-          cp -r ./arm64/Contents/Frameworks/* ./universal/Automation-Platform.app/Contents/Frameworks/ 2>/dev/null || true
-          cp -r ./arm64/Contents/_CodeSignature/* ./universal/Automation-Platform.app/Contents/_CodeSignature/ 2>/dev/null || true
-          cp -r ./arm64/Contents/MacOS/plugins ./universal/Automation-Platform.app/Contents/MacOS/ 2>/dev/null || true
-          
+          set -euo pipefail
+          ARM="artifacts/arm64/${APP_NAME}.app"
+          X86="artifacts/x86_64/${APP_NAME}.app"
+          APP="dist/${APP_NAME}.app"
+          rm -rf dist
+          mkdir -p dist
+          # 以 arm64 包为骨架（Info.plist / Resources 两个包一致）
+          cp -R "$ARM" "$APP"
           lipo -create \
-            ./x86_64/Contents/MacOS/Automation-Platform \
-            ./arm64/Contents/MacOS/Automation-Platform \
-            -output ./universal/Automation-Platform.app/Contents/MacOS/Automation-Platform
-          
-          chmod +x ./universal/Automation-Platform.app/Contents/MacOS/Automation-Platform
+            "$X86/Contents/MacOS/${APP_NAME}" \
+            "$ARM/Contents/MacOS/${APP_NAME}" \
+            -output "$APP/Contents/MacOS/${APP_NAME}"
+          chmod +x "$APP/Contents/MacOS/${APP_NAME}"
+          # 两个架构都能原生运行的 C 组件（不依赖 Rosetta）
+          cc -O2 -arch x86_64 -arch arm64 \
+             -o "$APP/Contents/MacOS/plugins/Waveform_plugin/fft_processor" \
+             C/fft_processor.c -lm
+          chmod +x "$APP/Contents/MacOS/plugins/Waveform_plugin/fft_processor"
 
-      - name: Verify universal app
+      - name: 重签名并校验
         run: |
-          echo "=== Universal app verification ==="
-          file ./universal/Automation-Platform.app/Contents/MacOS/Automation-Platform
-          lipo -info ./universal/Automation-Platform.app/Contents/MacOS/Automation-Platform
+          # lipo 修改可执行文件后原签名失效，必须重新做 ad-hoc 签名，
+          # 否则 Apple Silicon 内核会直接拒绝加载（"code signature invalid"）。
+          set -euo pipefail
+          APP="dist/${APP_NAME}.app"
+          BIN="$APP/Contents/MacOS/${APP_NAME}"
+          lipo -info "$BIN"
+          archs="$(lipo -archs "$BIN")"
+          echo "universal 主程序架构: $archs"
+          if [ "$archs" != "x86_64 arm64" ] && [ "$archs" != "arm64 x86_64" ]; then
+            echo "::error::主程序不是 universal2：$archs"; exit 1
+          fi
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep --strict "$APP"
+          codesign -dv "$APP" 2>&1 | grep -E '^(Executable|Identifier|Format|Signature|TeamIdentifier)' || true
+          echo "--- app 内 C 组件 ---"
+          file "$APP/Contents/MacOS/plugins/Waveform_plugin/fft_processor"
+          out="$("$APP/Contents/MacOS/plugins/Waveform_plugin/fft_processor" 2>&1 || true)"
+          echo "$out" | grep -q "查询单频率" || {
+            echo "::error::universal 包内 fft_processor 无法运行"; exit 1; }
 
-      - name: Upload universal artifact
-        uses: actions/upload-artifact@v4
+      - name: 压缩 universal 产物
+        run: |
+          set -euo pipefail
+          Z="dist/${APP_NAME}-universal.zip"
+          ditto -c -k --sequesterRsrc --keepParent "dist/${APP_NAME}.app" "$Z"
+          shasum -a 256 "$Z" | tee "$Z.sha256"
+          du -sh "dist/${APP_NAME}.app"
+          ls -lh "$Z"
+
+      - name: 上传 universal 产物
+        uses: actions/upload-artifact@v7
         with:
-          name: Automation-Platform-universal
-          path: ./universal/Automation-Platform.app
-          retention-days: 7
+          name: app-universal
+          path: |
+            dist/${{ env.APP_NAME }}-universal.zip
+            dist/${{ env.APP_NAME }}-universal.zip.sha256
+          retention-days: 14
+          compression-level: 0
+
+  # ================================================================ 发布
+  release:
+    name: Publish release
+    needs: universal
+    if: startsWith(github.ref, 'refs/tags/') || inputs.publish_release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: 下载 universal 产物
+        uses: actions/download-artifact@v8
+        with:
+          name: app-universal
+          path: release
+
+      - name: 创建 / 更新 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || format('build-{0}', github.run_number) }}
+        run: |
+          set -euo pipefail
+          ls -lh release
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" --title "$TAG" --generate-notes --target "$GITHUB_SHA"
+          gh release upload "$TAG" release/*.zip release/*.sha256 --clobber
+          echo "Release: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
