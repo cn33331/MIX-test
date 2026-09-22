@@ -196,32 +196,73 @@ jobs:
           ls -la "$APP/Contents/MacOS/plugins"
           du -sh "$APP"
 
-      - name: 运行冒烟测试（真的启动一次）
+      - name: 校验插件依赖随包
         run: |
-          # 只验证"能不能起来"。onefile 的载荷加载失败会在 1 秒内以 PYI- 错误退出，
-          # 这类问题静态检查（架构、签名、归档条目）全都看不出来。
-          # 无窗口运行：QT_QPA_PLATFORM=offscreen（libqoffscreen 已随 PyQt6 打进包）。
+          # plugins/ 是打包完成后以普通文件复制进 .app 的（spec 的 post_build_copy_plugins），
+          # 不参与 PyInstaller 的导入分析：插件用到而主程序没用到的模块，是否随包完全取决于
+          # 构建环境的偶然因素。曾因此出现过 arm64 产物缺 concurrent.futures、插件一打开就报
+          # ModuleNotFoundError，而同一次 CI 的 x86_64 产物恰好带着（多了一个 setuptools 依赖链）。
+          # 这里按插件入口做可达性扫描，逐个核对模块是否真的在产物归档里。
+          set -euo pipefail
+          python plugin_deps.py --check "dist/${APP_NAME}.app/Contents/MacOS/${APP_NAME}"
+
+      - name: 运行冒烟测试（真的启动一次并检查插件加载）
+        run: |
+          # 只验证「app 能不能起来」是不够的：插件是主程序启动后才动态加载的，插件依赖缺失时
+          # 主程序并不崩，而是弹一个对话框（无窗口环境下会一直挂着），进程存活、日志干净，
+          # 于是静态检查和单纯的启动测试都发现不了。曾因此让 arm64 产物带着
+          # 「i2c_scan 缺少 concurrent」发出去了。
+          # 应用会打印 [插件加载] / [插件加载成功] / [插件加载失败] 标记，这里据此断言
+          # plugins.json 里声明的每个插件都真的加载成功。
+          # 注意：print 是块缓冲的，必须用 pty（script）运行，否则被 kill 时输出全丢。
           set -uo pipefail
           APP="dist/${APP_NAME}.app"
+          BIN="$APP/Contents/MacOS/${APP_NAME}"
+          MANIFEST="$APP/Contents/MacOS/plugins/plugins.json"
           LOG="$(mktemp)"
-          QT_QPA_PLATFORM=offscreen "$APP/Contents/MacOS/${APP_NAME}" >"$LOG" 2>&1 &
+
+          QT_QPA_PLATFORM=offscreen script -q /dev/null "$BIN" >"$LOG" 2>&1 &
           pid=$!
           alive=0
-          for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+          for _ in $(seq 1 20); do
             sleep 1
             kill -0 "$pid" 2>/dev/null || break
             alive=1
           done
+          pkill -9 -P "$pid" 2>/dev/null || true
           kill -9 "$pid" 2>/dev/null || true
           wait "$pid" 2>/dev/null || true
-          echo "--- 启动输出（截断至 2000 字节）---"
-          head -c 2000 "$LOG" || true
+
+          echo "--- 启动输出（截断 4000 字节）---"
+          head -c 4000 "$LOG" || true
           echo
-          if grep -qE 'PYI-|Failed to load Python|incompatible architecture|ImportError|ModuleNotFoundError' "$LOG"; then
-            echo "::error::app 启动失败（载荷 / 架构 / 依赖缺失），详见上方日志"; exit 1
+
+          rc=0
+          if grep -qE 'PYI-|Failed to load Python|incompatible architecture' "$LOG"; then
+            echo "::error::app 启动失败（载荷 / 架构问题），详见上方日志"; rc=1
           fi
-          [ "$alive" = 1 ] || { echo "::error::app 未能在 15 秒内保持运行，疑似启动即崩溃"; exit 1; }
-          echo "冒烟通过：app 可正常启动并保持运行"
+          [ "$alive" = 1 ] || { echo "::error::app 未能在 20 秒内保持运行，疑似启动即崩溃"; rc=1; }
+
+          if grep -q '\[插件加载失败\]' "$LOG"; then
+            grep '\[插件加载失败\]' "$LOG" | sed 's/^/::error::/' || true
+            rc=1
+          fi
+
+          if [ -f "$MANIFEST" ]; then
+            for p in $(python -c "import json,sys;print(' '.join(json.load(open(sys.argv[1]))['plugins']))" "$MANIFEST"); do
+              if grep -q "\[插件加载成功\] 插件: $p " "$LOG"; then
+                echo "插件 $p 加载成功"
+              else
+                echo "::error::插件 $p 没有出现「加载成功」标记（依赖缺失或加载异常）"
+                rc=1
+              fi
+            done
+          else
+            echo "::error::找不到 $MANIFEST"; rc=1
+          fi
+
+          [ "$rc" = 0 ] || exit 1
+          echo "冒烟通过：app 可正常启动，plugins.json 中的插件全部加载成功"
 
       - name: 压缩（ditto 打包，保住可执行位）
         run: |

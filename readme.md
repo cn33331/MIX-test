@@ -269,6 +269,29 @@ git push origin v0.2.0                              # 3. 推 tag，触发构建
 
 构建过程内置断言：主程序架构与 runner 匹配、Qt 确实随包（防止打出启动即报错的空壳 app）、app 内 C 组件保留可执行位、app 版本号与 tag 一致，最后还会**用 `QT_QPA_PLATFORM=offscreen` 真正启动一次 app**，确认载荷能被加载、进程不崩溃（载荷/架构类问题只有真跑才能发现）。
 
+#### 插件依赖必须随包（重要，新增插件依赖时看这里）
+
+`plugins/` 是在打包**完成之后**以普通文件复制进 `.app` 的（见 spec 的 `post_build_copy_plugins`），**不参与 PyInstaller 的导入分析**。所以插件里 import 的模块，只有在主程序本身也用到、或构建环境偶然把依赖链条带进来时才会随包 —— 否则插件在运行时抛 `ModuleNotFoundError`。
+
+> 曾真实发生过：`i2c_scan_plugin/transports.py` 顶层 `from concurrent.futures import ThreadPoolExecutor`，而主程序不用 concurrent。x86_64 runner 的依赖图恰好把它带了进来，arm64 runner 没有 → 同一次 CI，两个架构一个好一个坏，arm64 产物一打开就报「i2c_scan 缺少 concurrent」。
+
+现在这件事是自动的：`Automation-Platform.spec` 会调用 `plugin_deps.py` 按插件入口做可达性扫描，把插件真正用到的外部模块自动加进 `hiddenimports`。你正常写插件的 `import` 即可，**不需要手工维护 hiddenimports**。
+
+规则与限制：
+
+- 插件只能依赖 **Python 标准库**或**主程序 `requirements.txt` 里已安装**的第三方包；依赖未安装的包会在构建时报「插件依赖未随包」。
+- 扫描是**从 `plugins.json` 声明的插件入口出发**的：写在插件里但从没被引用的「遗留文件」不会被算进来（例如 `Waveform_plugin/FFT.py` 已没人引用，它的 numpy/scipy 就无需随包）。
+- 本地自检：`python plugin_deps.py --check dist/Automation-Platform.app/Contents/MacOS/Automation-Platform`。
+
+CI 里对应的两道防线（两个架构都会跑）：
+
+| 步骤 | 作用 |
+|------|------|
+| `校验插件依赖随包` | 静态核对：产出物归档里是否真有插件需要的每个模块（精确到子模块，如 `concurrent.futures` 而不是 `concurrent`） |
+| `运行冒烟测试` | 运行时核对：真的启动 app，断言 `plugins.json` 里每个插件都打印了 `[插件加载成功]`。插件加载失败只会弹对话框、不会让主程序崩，因此必须查这个标记 |
+
+> 说明：这里的插件加载检查依赖 stdout 上的 `[插件加载]`/`[插件加载成功]`/`[插件加载失败]` 标记（来自 `main_application.py`），并用 `script` 以伪终端方式运行 —— `print` 默认是块缓冲的，直接 `kill` 会丢掉输出。
+
 #### 产物说明（Release 页面）
 
 按 Mac 的 CPU 架构选择下载，两个包都是完整、独立可用的：
