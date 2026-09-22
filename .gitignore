@@ -9,8 +9,8 @@ mix8/mix/
 *.pyc
 rpc_7/
 error.log/
-plugins/MIX_debug_plugin/mix/
-plugins/libs/
+# 注意：plugins/libs/ 与 plugins/MIX_debug_plugin/mix/ 已纳入版本控制——
+# CI 打包时会把整个 plugins 目录复制进 app，忽略它们会导致 CI 产物缺功能，不要再加回忽略列表。
 soft_copyright/
 .trae/
 .workbuddy/
