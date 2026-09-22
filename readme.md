@@ -200,7 +200,7 @@ from utils.stylesheet_manager import StyleSheetManager
 | pyzmq | 25.1.2 | ZeroMQ 通信（MIX_debug 插件） |
 | pyserial | 3.5 | 串口通信（UART_debug 插件） |
 | numpy | >= 2.0.0 | 数值计算（Waveform 插件） |
-| scipy | 1.11.4 | FFT 计算（Waveform 插件） |
+| scipy | 1.15.3 | FFT 计算（Waveform 插件） |
 | ujson | 5.9.0 | 高性能 JSON 解析 |
 
 ### 插件额外依赖
@@ -228,6 +228,67 @@ pyinstaller Automation-Platform.spec
 - 打包后自动将 `plugins/` 目录复制到 `.app/Contents/MacOS/plugins/`
 - `plugins/libs/` 中的标准库补丁通过 `sys.path` 优先加载
 - 插件目录不打包进 MEIPASS，保持外部可修改
+- 版本号由环境变量 `APP_VERSION` 注入 `CFBundleShortVersionString`（未设置时为 `0.0.0`）
+- 采用 onefile 打包，Qt 等运行库内嵌在主程序的 CArchive 中，`Contents/Frameworks` 为空属正常现象
+
+### GitHub Actions 自动打包与发布
+
+workflow 文件：`.github/workflows/build.yml`。推送 tag 后由 GitHub Actions 自动完成双架构构建、合成 universal 包并发布 Release。
+
+#### 触发方式
+
+| 动作 | 是否触发 | 结果 |
+|------|----------|------|
+| `git push origin v0.2.0`（tag 名以 `v` 开头） | ✅ 触发 | 双架构构建 → universal 合成 → **自动创建 Release** |
+| Actions 页 → Run workflow，勾选 `publish_release` | ✅ 触发 | 同样流程，Release 标签为 `build-<运行号>` |
+| Actions 页 → Run workflow，不勾选 `publish_release` | ✅ 触发 | 只构建，产物留在该次运行的 Artifacts，不发 Release |
+| `git push origin main`（或其他普通分支） | ❌ 不触发 | 刻意如此配置，避免消耗 CI 额度 |
+| 本地执行 `git tag` 但未推送 | ❌ 不触发 | tag 必须推送到远端才生效 |
+
+其他规则：
+
+- 同一个 ref（同一 tag、同一分支）重复触发时，会**自动取消上一次**未完成的运行（`concurrency`）
+- 由于推分支不构建，改完代码需**先推代码、再打 tag**，保证 tag 指向包含新代码的提交
+
+#### 发布新版本
+
+```bash
+git push origin main                                # 1. 先推代码
+git tag -a v0.2.0 -m "Automation-Platform v0.2.0"   # 2. 打 tag（名字以 v 开头）
+git push origin v0.2.0                              # 3. 推 tag，触发构建
+```
+
+撤销一次发布：`git push --delete origin v0.2.0`，并在 Release 页面删除对应 Release。
+
+#### 构建流程
+
+| 作业 | 运行环境 | 产出 |
+|------|----------|------|
+| `build`（矩阵 ×2） | `macos-15`（arm64）/ `macos-15-intel`（x86_64） | 各自原生架构的 `Automation-Platform-<arch>.zip` + sha256 |
+| `release` | `ubuntu-latest` | 创建 / 更新 Release 并上传两个架构的产物（仅 tag 触发或勾选发布时执行） |
+
+构建过程内置断言：主程序架构与 runner 匹配、Qt 确实随包（防止打出启动即报错的空壳 app）、app 内 C 组件保留可执行位、app 版本号与 tag 一致，最后还会**用 `QT_QPA_PLATFORM=offscreen` 真正启动一次 app**，确认载荷能被加载、进程不崩溃（载荷/架构类问题只有真跑才能发现）。
+
+#### 产物说明（Release 页面）
+
+按 Mac 的 CPU 架构选择下载，两个包都是完整、独立可用的：
+
+| 条目 | 适用机器 |
+|------|----------|
+| `Automation-Platform-x86_64.zip` | **Intel 芯片**的 Mac |
+| `Automation-Platform-arm64.zip` | **Apple Silicon（M 系列）**的 Mac |
+| `*.zip.sha256` | 校验和，用于核对下载完整性 |
+| `Source code (zip)` / `(tar.gz)` | GitHub 自动生成的源码快照，非程序包 |
+
+查看自己的芯片：左上角苹果菜单 → 关于本机 → 「芯片」（M1/M2/M3… 用 arm64）或「处理器」（Intel 用 x86_64）。
+
+> 为什么不提供 universal 单包：spec 采用 onefile 打包，内嵌 Python 与依赖以归档形式追加在主程序尾部，PyInstaller 引导程序靠"文件尾部的归档标记"定位载荷；用 `lipo` 把两个 onefile 可执行文件拼成 fat 后文件里会存在两个归档，引导程序只会取靠近文件末尾的那个，导致另一个架构的进程加载到错误架构的 Python（实测 Intel 上加载 arm64 库，报 `incompatible architecture`）。**切勿再用 `lipo` 合并 onefile 产物**；若将来确实需要 universal 单包，须先迁移到 onedir 模式，再逐个 Mach-O 文件合并。
+
+> 备注：PyInstaller 已提示 onefile 与 macOS `.app` 搭配的用法将在 v7.0 变为错误（当前为 DEPRECATION 警告），后续可规划迁移到 onedir 模式。
+
+#### 版本号规则
+
+Release 构建时 app 版本号自动取自 tag 名（`v0.2.0` → `0.2.0`），写入 `CFBundleShortVersionString` 与 `CFBundleVersion`；手动触发时为 `0.0.0`。tag 触发时若 app 版本与 tag 不一致，构建会中断报错。
 
 ## 相关文档
 

@@ -2,7 +2,14 @@ name: Build Automation-Platform
 
 # 触发方式
 #   1) 手动：Actions → Build Automation-Platform → Run workflow
-#   2) 自动：推送 v* 标签（构建 universal 包并创建 Release）
+#   2) 自动：推送 v* 标签（构建并按架构发布产物，同时创建 Release）
+#
+# 产物：Automation-Platform-arm64.zip 与 Automation-Platform-x86_64.zip（各带 sha256）。
+# 为什么不做 universal 单包：spec 是 onefile 打包，载荷（内嵌 Python 与所有依赖）以归档形式
+# 追加在主程序尾部，PyInstaller 的引导程序靠"文件尾部的归档标记"定位载荷。用 lipo 把两个
+# onefile 可执行文件拼成 fat 后，文件里会存在两个归档，引导程序只会用靠近文件末尾的那个，
+# 于是另一个架构的进程会加载到错误架构的 Python（实测：Intel 上加载 arm64 的 Python 库，
+# 报 "incompatible architecture"）。要真正做 universal 必须改为 onedir 模式后逐个 Mach-O 合并。
 on:
   workflow_dispatch:
     inputs:
@@ -189,6 +196,33 @@ jobs:
           ls -la "$APP/Contents/MacOS/plugins"
           du -sh "$APP"
 
+      - name: 运行冒烟测试（真的启动一次）
+        run: |
+          # 只验证"能不能起来"。onefile 的载荷加载失败会在 1 秒内以 PYI- 错误退出，
+          # 这类问题静态检查（架构、签名、归档条目）全都看不出来。
+          # 无窗口运行：QT_QPA_PLATFORM=offscreen（libqoffscreen 已随 PyQt6 打进包）。
+          set -uo pipefail
+          APP="dist/${APP_NAME}.app"
+          LOG="$(mktemp)"
+          QT_QPA_PLATFORM=offscreen "$APP/Contents/MacOS/${APP_NAME}" >"$LOG" 2>&1 &
+          pid=$!
+          alive=0
+          for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+            sleep 1
+            kill -0 "$pid" 2>/dev/null || break
+            alive=1
+          done
+          kill -9 "$pid" 2>/dev/null || true
+          wait "$pid" 2>/dev/null || true
+          echo "--- 启动输出（截断至 2000 字节）---"
+          head -c 2000 "$LOG" || true
+          echo
+          if grep -qE 'PYI-|Failed to load Python|incompatible architecture|ImportError|ModuleNotFoundError' "$LOG"; then
+            echo "::error::app 启动失败（载荷 / 架构 / 依赖缺失），详见上方日志"; exit 1
+          fi
+          [ "$alive" = 1 ] || { echo "::error::app 未能在 15 秒内保持运行，疑似启动即崩溃"; exit 1; }
+          echo "冒烟通过：app 可正常启动并保持运行"
+
       - name: 压缩（ditto 打包，保住可执行位）
         run: |
           # 不要用 upload-artifact 直接传 .app 目录：官方文档 "Permission Loss" 明确说明
@@ -210,131 +244,34 @@ jobs:
           retention-days: 14
           compression-level: 0
 
-  # ========================================================= 合成 universal2
-  universal:
-    name: Create universal2 app
-    needs: build
-    runs-on: macos-15
-    timeout-minutes: 40
-    steps:
-      - name: 检出代码（重新编译 C 组件为 universal2 需要源码）
-        uses: actions/checkout@v7
-
-      - name: 下载 arm64 产物
-        uses: actions/download-artifact@v8
-        with:
-          name: app-arm64
-          path: artifacts/arm64
-
-      - name: 下载 x86_64 产物
-        uses: actions/download-artifact@v8
-        with:
-          name: app-x86_64
-          path: artifacts/x86_64
-
-      - name: 解压并校验两个单架构产物
-        run: |
-          set -euo pipefail
-          for a in arm64 x86_64; do
-            ditto -x -k "artifacts/$a/${APP_NAME}-$a.zip" "artifacts/$a/"
-            BIN="artifacts/$a/${APP_NAME}.app/Contents/MacOS/${APP_NAME}"
-            test -f "$BIN" || { echo "::error::$BIN 不存在"; exit 1; }
-            archs="$(lipo -archs "$BIN")"
-            echo "$a 主程序架构: $archs"
-            [ "$archs" = "$a" ] || { echo "::error::$a 产物架构异常：$archs"; exit 1; }
-            test -x "${BIN%/*}/plugins/Waveform_plugin/fft_processor" || {
-              echo "::error::解压后 fft_processor 丢失可执行位（产物应通过 ditto 打包）"; exit 1; }
-          done
-
-      - name: 合成 universal2 app
-        run: |
-          set -euo pipefail
-          ARM="artifacts/arm64/${APP_NAME}.app"
-          X86="artifacts/x86_64/${APP_NAME}.app"
-          APP="dist/${APP_NAME}.app"
-          rm -rf dist
-          mkdir -p dist
-          # 以 arm64 包为骨架（Info.plist / Resources 两个包一致）
-          cp -R "$ARM" "$APP"
-          lipo -create \
-            "$X86/Contents/MacOS/${APP_NAME}" \
-            "$ARM/Contents/MacOS/${APP_NAME}" \
-            -output "$APP/Contents/MacOS/${APP_NAME}"
-          chmod +x "$APP/Contents/MacOS/${APP_NAME}"
-          # 两个架构都能原生运行的 C 组件（不依赖 Rosetta）
-          cc -O2 -arch x86_64 -arch arm64 \
-             -o "$APP/Contents/MacOS/plugins/Waveform_plugin/fft_processor" \
-             C/fft_processor.c -lm
-          chmod +x "$APP/Contents/MacOS/plugins/Waveform_plugin/fft_processor"
-
-      - name: 重签名并校验
-        run: |
-          # lipo 修改可执行文件后原签名失效，必须重新做 ad-hoc 签名，
-          # 否则 Apple Silicon 内核会直接拒绝加载（"code signature invalid"）。
-          set -euo pipefail
-          APP="dist/${APP_NAME}.app"
-          BIN="$APP/Contents/MacOS/${APP_NAME}"
-          lipo -info "$BIN"
-          archs="$(lipo -archs "$BIN")"
-          echo "universal 主程序架构: $archs"
-          if [ "$archs" != "x86_64 arm64" ] && [ "$archs" != "arm64 x86_64" ]; then
-            echo "::error::主程序不是 universal2：$archs"; exit 1
-          fi
-          codesign --force --deep --sign - "$APP"
-          codesign --verify --deep --strict "$APP"
-          codesign -dv "$APP" 2>&1 | grep -E '^(Executable|Identifier|Format|Signature|TeamIdentifier)' || true
-          # 合包后同样确认 Qt 在包内（onefile 的归档目录在主程序二进制里，是明文）
-          BIN="$APP/Contents/MacOS/${APP_NAME}"
-          for lib in "PyQt6/Qt6/lib/QtCore" "PyQt6/Qt6/lib/QtWidgets"; do
-            grep -aq "$lib" "$BIN" || {
-              echo "::error::universal 包内未找到 $lib —— PyQt6/Qt 缺失"; exit 1; }
-          done
-          echo "PyQt6/Qt 已随包（universal）"
-          # 版本号由两个架构的构建一致地带过来，这里再确认一遍没有在合包时丢失
-          ver="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
-          echo "universal 包版本: $ver"
-          [ "$ver" = "${APP_VERSION#v}" ] || {
-            echo "::error::universal 包版本 $ver 与期望 ${APP_VERSION#v} 不一致"; exit 1; }
-          echo "--- app 内 C 组件 ---"
-          file "$APP/Contents/MacOS/plugins/Waveform_plugin/fft_processor"
-          out="$("$APP/Contents/MacOS/plugins/Waveform_plugin/fft_processor" 2>&1 || true)"
-          echo "$out" | grep -q "查询单频率" || {
-            echo "::error::universal 包内 fft_processor 无法运行"; exit 1; }
-
-      - name: 压缩 universal 产物
-        run: |
-          set -euo pipefail
-          Z="dist/${APP_NAME}-universal.zip"
-          ditto -c -k --sequesterRsrc --keepParent "dist/${APP_NAME}.app" "$Z"
-          shasum -a 256 "$Z" | tee "$Z.sha256"
-          du -sh "dist/${APP_NAME}.app"
-          ls -lh "$Z"
-
-      - name: 上传 universal 产物
-        uses: actions/upload-artifact@v7
-        with:
-          name: app-universal
-          path: |
-            dist/${{ env.APP_NAME }}-universal.zip
-            dist/${{ env.APP_NAME }}-universal.zip.sha256
-          retention-days: 14
-          compression-level: 0
-
   # ================================================================ 发布
   release:
     name: Publish release
-    needs: universal
+    needs: build
     if: startsWith(github.ref, 'refs/tags/') || inputs.publish_release
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write
     steps:
-      - name: 下载 universal 产物
+      - name: 下载全部架构产物
         uses: actions/download-artifact@v8
         with:
-          name: app-universal
+          pattern: app-*
           path: release
+          merge-multiple: true
+
+      - name: 校验产物齐全（两个架构都要有）
+        run: |
+          set -euo pipefail
+          ls -lh release
+          for a in arm64 x86_64; do
+            [ -f "release/${APP_NAME}-$a.zip" ] || {
+              echo "::error::缺少 ${APP_NAME}-$a.zip"; exit 1; }
+            [ -f "release/${APP_NAME}-$a.zip.sha256" ] || {
+              echo "::error::缺少 ${APP_NAME}-$a.zip.sha256"; exit 1; }
+          done
+          echo "两个架构的产物齐全"
 
       - name: 创建 / 更新 Release
         env:
