@@ -339,11 +339,27 @@ jobs:
       - name: 创建 / 更新 Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 本作业不 checkout，当前目录不是 git 仓库；gh 只认 GH_REPO/git remote，
+          # 不会读 GITHUB_REPOSITORY，不设置就会 "could not determine base repo" 失败。
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_type == 'tag' && github.ref_name || format('build-{0}', github.run_number) }}
         run: |
           set -euo pipefail
           ls -lh release
-          gh release view "$TAG" >/dev/null 2>&1 || \
-            gh release create "$TAG" --title "$TAG" --generate-notes --target "$GITHUB_SHA"
-          gh release upload "$TAG" release/*.zip release/*.sha256 --clobber
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            # tag 已随 push 存在时 target_commitish 会被 GitHub 忽略；
+            # 手动触发时 tag 不存在，需要 --target 指定 commit。
+            if ! out="$(gh release create "$TAG" --title "$TAG" --generate-notes \
+                        --target "$GITHUB_SHA" 2>&1)"; then
+              echo "$out"
+              echo "::error::创建 Release 失败: $(echo "$out" | tail -n1)"
+              exit 1
+            fi
+            echo "$out"
+          fi
+          if ! out="$(gh release upload "$TAG" release/*.zip release/*.sha256 --clobber 2>&1)"; then
+            echo "$out"
+            echo "::error::上传 Release 附件失败: $(echo "$out" | tail -n1)"
+            exit 1
+          fi
           echo "Release: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
