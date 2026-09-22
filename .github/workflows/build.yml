@@ -26,6 +26,9 @@ permissions:
 env:
   APP_NAME: Automation-Platform
   PYTHON_VERSION: '3.10'
+  # 版本号来源：打 tag 触发时用 tag 名（v0.1.0 → 0.1.0，收敛逻辑在 Automation-Platform.spec 里），
+  # 手动触发时为 0.0.0。会写入 app 的 CFBundleShortVersionString，并与 tag 做一致性校验。
+  APP_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '0.0.0' }}
 
 jobs:
   # ============================================================== 分架构构建
@@ -147,6 +150,27 @@ jobs:
           # 随包分发的 C 组件必须保留可执行位
           test -x "$APP/Contents/MacOS/plugins/Waveform_plugin/fft_processor" || {
             echo "::error::app 内 fft_processor 不可执行"; exit 1; }
+
+          echo "--- 版本 ---"
+          ver="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
+          echo "app 版本: $ver"
+          echo "$ver" | grep -Eq '^[0-9]+(\.[0-9]+){0,2}$' || {
+            echo "::error::Info.plist 里的版本号格式不合规：$ver"; exit 1; }
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            expected="${{ github.ref_name }}"; expected="${expected#v}"
+            [ "$ver" = "$expected" ] || {
+              echo "::error::app 版本 $ver 与 tag $expected 不一致"; exit 1; }
+            echo "版本与 tag 一致"
+          fi
+
+          # spec 的 post_build_copy_plugins() 是在 PyInstaller 完成签名之后才把 plugins
+          # 复制进来的，会让包的签名封印失效（codesign --verify 会报
+          # "a sealed resource is missing or invalid"）。这里统一补做 ad-hoc 重签名，
+          # 否则单架构产物本身就是坏的（Apple Silicon 上会被拒绝加载）。
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep --strict "$APP"
+          echo "ad-hoc 重签名校验通过"
+
           echo "--- app 内 plugins ---"
           ls -la "$APP/Contents/MacOS/plugins"
           du -sh "$APP"
@@ -245,6 +269,11 @@ jobs:
           codesign --force --deep --sign - "$APP"
           codesign --verify --deep --strict "$APP"
           codesign -dv "$APP" 2>&1 | grep -E '^(Executable|Identifier|Format|Signature|TeamIdentifier)' || true
+          # 版本号由两个架构的构建一致地带过来，这里再确认一遍没有在合包时丢失
+          ver="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
+          echo "universal 包版本: $ver"
+          [ "$ver" = "${APP_VERSION#v}" ] || {
+            echo "::error::universal 包版本 $ver 与期望 ${APP_VERSION#v} 不一致"; exit 1; }
           echo "--- app 内 C 组件 ---"
           file "$APP/Contents/MacOS/plugins/Waveform_plugin/fft_processor"
           out="$("$APP/Contents/MacOS/plugins/Waveform_plugin/fft_processor" 2>&1 || true)"

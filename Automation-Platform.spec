@@ -1,9 +1,17 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import os
+import re
 import shutil
 
 current_dir = os.path.dirname(os.path.abspath(SPEC))
+
+# 版本号注入：CI 通过 APP_VERSION 传入（通常是 git tag，如 v0.1.0）。
+# Bundle 版本必须是 1~3 段点分数字，这里做一次收敛；本地不传时保持历史行为 0.0.0。
+_app_version_raw = os.environ.get('APP_VERSION', '') or ''
+_ver_match = re.match(r'\s*v?(\d+(?:\.\d+){0,2})', _app_version_raw)
+app_version = _ver_match.group(1) if _ver_match else '0.0.0'
+print(f'[Spec] APP_VERSION={_app_version_raw!r} -> CFBundleShortVersionString={app_version}')
 
 
 def post_build_copy_plugins():
@@ -84,6 +92,10 @@ app = BUNDLE(
     name='Automation-Platform.app',
     icon=os.path.join(current_dir, 'static', 'sword.icns'),
     bundle_identifier=None,
+    info_plist={
+        'CFBundleShortVersionString': app_version,
+        'CFBundleVersion': app_version,
+    },
 )
 
 # 打包完成后自动复制 plugins 目录
