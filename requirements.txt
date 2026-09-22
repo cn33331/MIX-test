@@ -3,4 +3,4 @@ pyserial==3.5
 pyzmq==25.1.2
 ujson==5.9.0
 numpy>=2.0.0
-scipy==1.11.4
+scipy==1.15.3

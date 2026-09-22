@@ -85,7 +85,9 @@ jobs:
           import platform
           import sys
 
+          import numpy
           import PyQt6.QtCore
+          import scipy
           import serial
           import ujson
           import zmq
@@ -95,6 +97,8 @@ jobs:
           print('serial :', serial.__version__)
           print('zmq    :', zmq.__version__)
           print('ujson  :', ujson.__version__)
+          print('numpy  :', numpy.__version__)
+          print('scipy  :', scipy.__version__)
           PY
 
       - name: 预检被 .gitignore 排除的运行时资源
@@ -150,6 +154,16 @@ jobs:
           # 随包分发的 C 组件必须保留可执行位
           test -x "$APP/Contents/MacOS/plugins/Waveform_plugin/fft_processor" || {
             echo "::error::app 内 fft_processor 不可执行"; exit 1; }
+
+          # spec 是 onefile 打包（EXE 未设 exclude_binaries），Python/PyQt6/Qt 全部
+          # 内嵌在主程序后缀的 CArchive 里，Contents/Frameworks 为空是正常现象。
+          # 归档目录（TOC）以明文存放在二进制末尾，直接 grep 确认 Qt 确实进包了，
+          # 防止在"没装 PyQt6 的环境"里打出启动即 ImportError 的空壳 app。
+          for lib in "PyQt6/Qt6/lib/QtCore" "PyQt6/Qt6/lib/QtWidgets"; do
+            grep -aq "$lib" "$BIN" || {
+              echo "::error::app 内未找到 $lib —— PyQt6/Qt 没有被收集进包，启动会 ImportError"; exit 1; }
+          done
+          echo "PyQt6/Qt 已随包"
 
           echo "--- 版本 ---"
           ver="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
@@ -269,6 +283,13 @@ jobs:
           codesign --force --deep --sign - "$APP"
           codesign --verify --deep --strict "$APP"
           codesign -dv "$APP" 2>&1 | grep -E '^(Executable|Identifier|Format|Signature|TeamIdentifier)' || true
+          # 合包后同样确认 Qt 在包内（onefile 的归档目录在主程序二进制里，是明文）
+          BIN="$APP/Contents/MacOS/${APP_NAME}"
+          for lib in "PyQt6/Qt6/lib/QtCore" "PyQt6/Qt6/lib/QtWidgets"; do
+            grep -aq "$lib" "$BIN" || {
+              echo "::error::universal 包内未找到 $lib —— PyQt6/Qt 缺失"; exit 1; }
+          done
+          echo "PyQt6/Qt 已随包（universal）"
           # 版本号由两个架构的构建一致地带过来，这里再确认一遍没有在合包时丢失
           ver="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
           echo "universal 包版本: $ver"
