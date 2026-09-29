@@ -192,7 +192,7 @@ def make_ssh_runner(default_timeout=30):
         {'driver': 'ssh',       'cmd': 'echo hi'}
         {'driver': 'ssh-scan',  'cmd': 'sudo detect_i2c -y 8'}   # 自动解析地址
 
-    底层复用 rsync_plugin 的 SSHManager（expect 包装 ssh，密码经环境变量传）。
+    底层使用公共模块 plugins/libs 的 SSHManager（expect 包装 ssh，密码经环境变量传）。
     ctx 需含 ssh_username/ssh_password/ssh_ip/ssh_port（或 ip/port/username 兜底）。
     """
 
@@ -204,7 +204,15 @@ def make_ssh_runner(default_timeout=30):
         ip = ctx.get('ssh_ip') or ctx.get('ip')
         key = (ip, ctx.get('ssh_port') or 22)
         if mgr is None or addr != key:
-            from ssh_manager import SSHManager  # noqa: lazy (rsync plugin)
+            # ssh_manager 是公共模块（plugins/libs），与 rsync_plugin 互不引用。
+            # main_application 已把 libs 插到 sys.path 最前；这里兜底，保证
+            # i2c_scan 插件独立加载时也能解析（不依赖 rsync_plugin 先加载）。
+            import sys
+            _libs = os.path.abspath(os.path.join(
+                os.path.dirname(os.path.abspath(__file__)), os.pardir, 'libs'))
+            if os.path.isdir(_libs) and _libs not in sys.path:
+                sys.path.insert(0, _libs)
+            from ssh_manager import SSHManager
             username = ctx.get('ssh_username') or ctx.get('username') or 'mixadmin'
             password = ctx.get('ssh_password') or ctx.get('password') or ''
             port = int(ctx.get('ssh_port') or 22)

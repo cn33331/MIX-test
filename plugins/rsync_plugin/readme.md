@@ -1,5 +1,9 @@
 # rsync_plugin 文件同步与部署工具
 
+> 注：SSH 管理模块（扫描/命令/InteractiveShell）已提取为公共模块
+> `plugins/libs/ssh_manager.py`，供本插件与 i2c_scan 等插件共享；
+> 插件之间互不引用，均只依赖 plugins/libs。
+
 ## 插件概述
 
 rsync_plugin 是一个基于 SSH 和 rsync 的文件同步与部署工具，提供网络设备扫描、FinalShell 风格双栏文件管理器、多设备文件同步推送、远程文件拉取、交互式 SSH Shell、指令批量发送、一键自动部署、VNC 远程连接等功能。基于 PyQt6 开发，采用模块化架构，适配低分辨率工控机。
@@ -108,7 +112,6 @@ rsync_plugin 是一个基于 SSH 和 rsync 的文件同步与部署工具，提�
 rsync_plugin/
 ├── rsync_plugin.py           # 主插件类（入口，v1.0）
 ├── file_browser_panel.py     # FinalShell 风格双栏文件管理器
-├── ssh_manager.py            # SSH 管理模块（扫描/命令/InteractiveShell）
 ├── rsync_manager.py          # Rsync 管理模块（推送/拉取）
 ├── vnc_manager.py            # VNC 连接管理模块
 ├── config_dialog.py          # 配置管理（继承 BaseJsonConfig）

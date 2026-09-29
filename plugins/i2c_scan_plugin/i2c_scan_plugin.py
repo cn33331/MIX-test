@@ -12,7 +12,7 @@
 - MIX JSON-RPC：调设备端方法（如 i2c_mux_base.set_channel_state_doe）。
 - SSH：在板卡 shell 执行 detect_i2c / i2cdetect 等并解析地址。
 
-依赖：PyQt6。SSH 底层复用 rsync_plugin/ssh_manager.py。
+依赖：PyQt6。SSH 底层使用公共模块 plugins/libs/ssh_manager.py（与 rsync_plugin 互不引用）。
 """
 
 import os

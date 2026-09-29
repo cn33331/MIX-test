@@ -36,6 +36,13 @@ PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 if PLUGIN_DIR not in sys.path:
     sys.path.insert(0, PLUGIN_DIR)
 
+# ssh_manager 已提取为公共模块 plugins/libs/ssh_manager.py（与 i2c_scan 等插件共享，
+# 插件之间互不引用）。main_application 会把 libs 插到 sys.path 最前，这里兜底，
+# 保证 rsync_plugin 独立加载时也能解析。
+_LIBS_DIR = os.path.normpath(os.path.join(PLUGIN_DIR, os.pardir, 'libs'))
+if os.path.isdir(_LIBS_DIR) and _LIBS_DIR not in sys.path:
+    sys.path.insert(0, _LIBS_DIR)
+
 from ssh_manager import SSHManager, parse_ip_range, check_expect
 from rsync_manager import RsyncManager
 from vnc_manager import VNCManager
