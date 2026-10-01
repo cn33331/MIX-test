@@ -1233,6 +1233,21 @@ class MIXDebugPlugin(QMainWindow):
             return group
         return self.new_sequence_group()
 
+    def _ensure_default_group(self):
+        """确保存在可用的序列组并返回"添加操作"的目标组。
+
+        优先复用当前选中组 / 第一个顶层组；一个组都没有时静默新建
+        「默认序列组」（不弹输入框），保证"添加指令/延迟/暂停到序列"
+        在空序列树时也有落点，不会因 AttributeError 或 None 组崩溃。
+
+        Returns:
+            QTreeWidgetItem: 目标序列组顶层节点（不会为 None）。
+        """
+        group = self._resolve_target_group()
+        if group is not None:
+            return group
+        return self.new_sequence_group(name='默认序列组')
+
     def _auto_save_group(self, group):
         """修改序列组后自动保存到磁盘。
 

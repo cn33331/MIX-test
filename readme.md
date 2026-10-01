@@ -27,10 +27,10 @@ MIX 自动化测试平台是一个基于插件化架构的通用测试工具集�
 │  └────────────────────────────────────────────────────────────────────────┘  │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                              插件层 (Plugin Layer)                             │
-│  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌──────────┐ │
-│  │ MIX_debug  │ │ TCP_debug  │ │ UART_debug │ │ Waveform   │ │ Rsync    │ │
-│  │   插件     │ │   插件     │ │   插件     │ │   插件     │ │  插件    │ │
-│  └────────────┘ └────────────┘ └────────────┘ └────────────┘ └──────────┘ │
+│ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐│
+│ │MIX_debug │ │TCP_debug │ │UART_debug│ │ Waveform │ │  Rsync   │ │ I2C-Scan ││
+│ │   插件   │ │   插件   │ │   插件   │ │   插件   │ │   插件   │ │   插件   ││
+│ └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘│
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                          公共工具层 (Utils Layer)                              │
 │  ┌──────────────┐ ┌──────────────┐ ┌────────────────┐ ┌──────────────────┐ │
@@ -82,15 +82,18 @@ class BasePlugin:
 | [Waveform](plugins/Waveform_plugin/readme.md) | v3 | 信号波形与 FFT 频谱分析 | 是 |
 | [Rsync](plugins/rsync_plugin/readme.md) | v1.0 | 远程文件同步与一键部署 | 是 |
 | [Qt-Study](plugins/qt_study_plugin/readme.md) | v1.0 | 插件框架学习示例 | 否 |
+| [I2C-Scan](plugins/i2c_scan_plugin/readme.md) | v1.0 | I2C 设备扫描与管理 | 是 |
 
 ## 快速开始
 
 ### 1. 环境准备
 
 ```bash
-# 激活虚拟环境
 cd /Users/gdlocal/Desktop/myCode/myAPP/MIX-test
-source /Users/gdlocal/Desktop/env_sum/vis/bin/activate
+# 首次使用：创建虚拟环境（已存在则跳过）
+python3 -m venv .venv
+# 激活虚拟环境（Windows 为 .venv\Scripts\activate）
+source .venv/bin/activate
 
 # 安装依赖
 pip install -r requirements.txt
@@ -164,7 +167,7 @@ from utils.stylesheet_manager import StyleSheetManager
 
 ```json
 {
-    "plugins": ["rsync", "Waveform", "MIX_debug"]
+    "plugins": ["rsync","Waveform","MIX_debug","i2c_scan"]
 }
 ```
 
@@ -303,25 +306,9 @@ CI 里对应的两道防线（两个架构都会跑）：
 | `*.zip.sha256` | 校验和，用于核对下载完整性 |
 | `Source code (zip)` / `(tar.gz)` | GitHub 自动生成的源码快照，非程序包 |
 
-查看自己的芯片：左上角苹果菜单 → 关于本机 → 「芯片」（M1/M2/M3… 用 arm64）或「处理器」（Intel 用 x86_64）。
-
-> 为什么不提供 universal 单包：spec 采用 onefile 打包，内嵌 Python 与依赖以归档形式追加在主程序尾部，PyInstaller 引导程序靠"文件尾部的归档标记"定位载荷；用 `lipo` 把两个 onefile 可执行文件拼成 fat 后文件里会存在两个归档，引导程序只会取靠近文件末尾的那个，导致另一个架构的进程加载到错误架构的 Python（实测 Intel 上加载 arm64 库，报 `incompatible architecture`）。**切勿再用 `lipo` 合并 onefile 产物**；若将来确实需要 universal 单包，须先迁移到 onedir 模式，再逐个 Mach-O 文件合并。
-
-> 备注：PyInstaller 已提示 onefile 与 macOS `.app` 搭配的用法将在 v7.0 变为错误（当前为 DEPRECATION 警告），后续可规划迁移到 onedir 模式。
-
 #### 版本号规则
 
 Release 构建时 app 版本号自动取自 tag 名（`v0.2.0` → `0.2.0`），写入 `CFBundleShortVersionString` 与 `CFBundleVersion`；手动触发时为 `0.0.0`。tag 触发时若 app 版本与 tag 不一致，构建会中断报错。
-
-## 相关文档
-
-- [MIX_debug_plugin 详细文档](plugins/MIX_debug_plugin/readme.md)
-- [MIX_2.0 RPC 协议注册机制详解](plugins/MIX_debug_plugin/mix/readme.md)
-- [TCP_debug_plugin 详细文档](plugins/TCP_debug_plugin/readme.md)
-- [UART_debug_plugin 详细文档](plugins/UART_debug_plugin/readme.md)
-- [Waveform_plugin 详细文档](plugins/Waveform_plugin/readme.md)
-- [rsync_plugin 详细文档](plugins/rsync_plugin/readme.md)
-- [qt_study_plugin 详细文档](plugins/qt_study_plugin/readme.md)
 
 ## 注意事项
 

@@ -628,28 +628,21 @@ class RemoteFileTable(BaseFileTable):
 
         code, out, err = self._exec_remote(ip, cmd, timeout=30)
 
-        entries: list[FileEntry] = []
-        if code != 0:
-            msg = (err or out or f'exit {code}').strip().splitlines()
-            line = msg[0] if msg else f'无法访问 {directory}'
-            # 明确记录失败的路径，避免路径被静默写错后只在 rsync 阶段
-            # 报晦涩的 code 23（远端 (l)stat: No such file or directory）
-            self._log(f'[远程] 列目录失败: {directory} → {line[:120]}')
-            entries.append(
-                FileEntry(
-                    name=f'（错误: {line[:50]}）',
-                    path='',
-                    is_dir=False
-                )
-            )
-            return entries
+        # 挑一条「像错误」的描述：stderr 原文 > 输出里的 ls: 行 > 输出首行 > 退出码。
+        # 注意不能无脑取输出首行：ls 正常输出时首行就是第一个文件名（如 "Actions/"），
+        # 会把文件名当错误信息打印，严重误导排障。
+        def _err_line() -> str:
+            if err and err.strip():
+                return err.strip().splitlines()[0]
+            for ln in (out or '').splitlines():
+                if ln.startswith('ls:'):
+                    return ln
+            lines = (out or '').strip().splitlines()
+            return lines[0] if lines else f'exit {code}'
 
-        # 父目录快捷条目（对应 '..'），若不在根目录
-        if directory != '/':
-            parent = '/' if directory.rstrip('/') == '' else os.path.dirname(directory.rstrip('/')) or '/'
-            entries.append(FileEntry(name='..', path=parent, is_dir=True))
         # 解析每行：ls -1p 输出裸名称，目录带尾部 /
         base = directory.rstrip('/')
+        parsed: list[FileEntry] = []
         for raw_line in out.splitlines():
             name = raw_line.strip()
             if not name or name in ('.', '..'):
@@ -666,11 +659,35 @@ class RemoteFileTable(BaseFileTable):
             if not name:
                 continue
             full = base + '/' + name
-            entries.append(FileEntry(
-                name=name,
-                path=full,
-                is_dir=is_dir,
-            ))
+            parsed.append(FileEntry(name=name, path=full, is_dir=is_dir))
+
+        # 父目录快捷条目（对应 '..'），若不在根目录
+        entries: list[FileEntry] = []
+        if directory != '/':
+            parent = '/' if directory.rstrip('/') == '' else os.path.dirname(directory.rstrip('/')) or '/'
+            entries.append(FileEntry(name='..', path=parent, is_dir=True))
+
+        if code == 0:
+            entries.extend(parsed)
+            return entries
+        if code == 1 and parsed:
+            # BSD/macOS ls：个别条目 lstat 失败时 rc=1 但仍会输出其余条目。
+            # 有正常条目 → 按「部分成功」渲染并记警告，避免整表丢弃。
+            self._log(f'[远程] 部分条目读取失败（已列出 {len(parsed)} 项）: '
+                      f'{directory} → {_err_line()[:120]}')
+            entries.extend(parsed)
+            return entries
+        line = _err_line()
+        # 明确记录失败的路径，避免路径被静默写错后只在 rsync 阶段
+        # 报晦涩的 code 23（远端 (l)stat: No such file or directory）
+        self._log(f'[远程] 列目录失败: {directory} → {line[:120]}')
+        entries.append(
+            FileEntry(
+                name=f'（错误: {line[:50]}）',
+                path='',
+                is_dir=False
+            )
+        )
         return entries
 
     def refresh(self):
@@ -1341,11 +1358,40 @@ class FinalShellFileBrowser(QWidget):
         )
         self.transfer_mgr.submit(task)
 
+    @staticmethod
+    def _quote_remote(path: str) -> str:
+        """把远程路径转成「能让远端 shell 展开 ~」的安全引用片段。
+
+        单引号会抑制波浪号展开：`[ -e '~/Library/Atlas2' ]` 测的是字面路径
+        `~/Library/Atlas2`，必然不存在——这是「文件明明存在却提示路径不存在」
+        的根因。因此开头为 `~` 的路径改写成 `"$HOME/..."`（双引号允许展开、
+        又能防空格），其余路径维持单引号。
+
+        Args:
+            path: 远程路径，可含 `~` / `~/` 前缀
+
+        Returns:
+            str: 可直接嵌入 test/[ ] 命令的引用片段
+        """
+        if path == '~' or path.startswith('~/'):
+            rest = path[1:]     # '' 或 '/xxx'
+            # 双引号内需转义：反斜杠、双引号、$、反引号
+            escaped = (rest.replace('\\', '\\\\')
+                           .replace('"', '\\"')
+                           .replace('$', '\\$')
+                           .replace('`', '\\`'))
+            return f'"$HOME{escaped}"'
+        return "'" + path.replace("'", "'\\''") + "'"
+
     def _remote_exists(self, ip: str, path: str) -> bool:
         """检查远程路径是否存在。
 
         下载前预检，避免路径写错时只在 rsync 阶段出现晦涩的
         `(l)stat: No such file or directory` + code 23。
+
+        引用规则见 `_quote_remote`：`~` 通过 `"$HOME..."` 在远端完成展开，
+        即使本地家目录探测失败、路径保持 `~/...` 原样，预检也不会产生
+        确定性假阴性。
 
         Args:
             ip: 目标设备 IP
@@ -1355,9 +1401,8 @@ class FinalShellFileBrowser(QWidget):
             bool: 存在返回 True
         """
         try:
-            quoted = "'" + path.replace("'", "'\\''") + "'"
             code, out, _ = self._exec_remote(
-                ip, f'[ -e {quoted} ] && echo E', timeout=15)
+                ip, f'[ -e {self._quote_remote(path)} ] && echo E', timeout=15)
             return 'E' in (out or '')
         except Exception:
             return True   # 探测失败时不阻断（交给 rsync 报真实错误）
@@ -1377,7 +1422,7 @@ class FinalShellFileBrowser(QWidget):
             True=目录 / False=文件 / None=未知
         """
         try:
-            quoted = "'" + path.replace("'", "'\\''") + "'"
+            quoted = self._quote_remote(path)
             cmd = f'if [ -d {quoted} ]; then echo d; elif [ -e {quoted} ]; then echo f; fi'
             code, out, _ = self._exec_remote(ip, cmd, timeout=15)
             lines = [ln.strip() for ln in (out or '').splitlines() if ln.strip()]

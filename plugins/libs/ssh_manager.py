@@ -36,8 +36,12 @@ class InteractiveShell:
     线程安全：内部有锁，但建议同一时刻只有一个线程发送命令。
     """
 
-    # 命令完成后打印的标记（用于检测输出结束 + 提取返回码）
-    _MARKER = '__SHELL_MARKER_RC__'
+    # 返回码标记前缀。实际标记为 f'{_MARKER}{seq}__'（每次调用唯一）：
+    # 此前所有调用共用固定标记 `__SHELL_MARKER_RC__`，上一条超时命令遗留的
+    # `echo MARKER=$?` 迟早会执行并打印出自己的标记行，之后每次调用都会停在这条
+    # 过期标记上——拿到旧 rc、截断本次输出，本次输出残留在 PTY 里变成下一次
+    # 调用的"幽灵输出"（实测表现为：列目录的报错信息是上一个目录的文件名）。
+    _MARKER = '__SHELL_MARKER_RC_'
 
     # 密码认证失败原因 → 用户可读提示（用于异常信息，便于日志定位根因）
     _AUTH_FAIL_HINTS = {
@@ -66,6 +70,7 @@ class InteractiveShell:
         self.port = port
         self._closed = False
         self._lock = threading.Lock()
+        self._marker_seq = 0    # send_command 每次调用递增，保证标记唯一
 
         # 使用 pty.fork() 创建真正拥有 controlling TTY 的 SSH 子进程。
         # 这比 openpty() + subprocess.Popen() 更适合 OpenSSH 的交互式密码认证：
@@ -224,6 +229,28 @@ class InteractiveShell:
 
         return buf.decode('utf-8', errors='replace')
 
+    def _drain_pending(self, quiet: float = 0.05, max_wait: float = 1.0):
+        """读干 PTY 中已就绪的残留输出，不留待后续调用。
+
+        场景：上一次调用超时后其命令仍在远端执行，输出与标记行会陆续到达；
+        若不清理，会混入下一次调用的结果（幽灵输出、rc 错位）。
+
+        Args:
+            quiet: 连续这么久（秒）无新数据即认为已排空
+            max_wait: 排空阶段的总时长上限（秒）
+        """
+        deadline = time.monotonic() + max_wait
+        while time.monotonic() < deadline:
+            rlist, _, _ = select.select([self.master_fd], [], [], quiet)
+            if not rlist:
+                return
+            try:
+                chunk = os.read(self.master_fd, 65536)
+            except OSError:
+                return
+            if not chunk:
+                return
+
     def _handle_password(self, timeout=15) -> str:
         """等待密码提示并输入密码，返回认证结果状态码。
 
@@ -319,39 +346,45 @@ class InteractiveShell:
             return -1, '会话已关闭'
 
         with self._lock:
-            # 发送命令 + 标记行（通过 echo 打印返回码和标记）
-            # 用 ; 分隔确保即使命令本身失败也能拿到 RC
-            full_cmd = f'{command}\n'
-            self._send_raw(full_cmd)
+            # 排空上次调用（尤其超时的那次）遗留的残留输出/标记行，
+            # 从干净状态开始本次命令。
+            self._drain_pending()
 
-            # 立即发送标记命令（单独一行，获取上一条命令的 $?）
-            marker_cmd = f'echo {self._MARKER}=$?\n'
+            # 每次调用唯一标记：读取只认本次标记，过期旧标记永远无法匹配
+            self._marker_seq += 1
+            marker = f'{self._MARKER}{self._marker_seq}__'
+            marker_cmd = f'echo {marker}=$?\n'
+
+            # 发送命令 + 标记命令（单独一行，获取上一条命令的 $?）
+            self._send_raw(f'{command}\n')
             self._send_raw(marker_cmd)
 
-            # 读取直到看到标记
-            output = self._read_until(self._MARKER, timeout=timeout)
+            # 读取直到看到本次标记
+            output = self._read_until(marker, timeout=timeout)
 
-            # 提取返回码
+            # 提取返回码：只匹配本次唯一标记。PTY 回显的 echo 命令行是
+            # `=$?`（无数字）不会误匹配；保险起见取最后一次出现。
             rc = -1
-            rc_match = re.search(rf'{self._MARKER}=(\d+)', output)
-            if rc_match:
+            for rc_match in re.finditer(rf'{re.escape(marker)}=(\d+)', output):
                 rc = int(rc_match.group(1))
 
             # 清理输出：
             # 1. 去掉命令回显行（PTY 回显时输出即命令原文，精确等值匹配避免误删真实结果）
-            # 2. 去掉标记行与 prompt marker
-            lines = output.split('\n')
+            # 2. 去掉标记行（本次 + 历次格式，防止串号残留混进正文）与 prompt marker
             cleaned = []
-            for line in lines:
+            for line in output.split('\n'):
                 if line.strip() == command.strip():
                     continue
-                if self._MARKER in line:
+                if re.search(r'__SHELL_MARKER_RC_\d+__=', line) or self._MARKER in line:
                     continue
                 if self._prompt_marker in line:
                     continue
-                if line.strip() == f'echo {self._MARKER}=$?':
-                    continue
                 cleaned.append(line)
+
+            if rc == -1:
+                # 超时/异常退出：本次命令可能仍在远端执行，其输出与标记稍后
+                # 才会到达；不排空的话会污染下一次调用（幽灵输出/错位标记）。
+                self._drain_pending(quiet=0.3, max_wait=2.0)
 
             # 去掉首尾空行
             stdout = '\n'.join(cleaned).strip()
